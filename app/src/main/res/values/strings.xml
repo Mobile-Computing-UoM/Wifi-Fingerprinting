@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Wifi Fingerprint</string>
+    <string name="wi_fi_fingerprint_scanner">Wi-Fi Fingerprint Scanner</string>
+    <string name="enter_spot_label_e_g_spot_1">Enter Spot Label (e.g. Spot 1)</string>
+    <string name="_1_record_survey_sample">1. Record Survey Sample</string>
+    <string name="_2_where_am_i_k_nn_match">2. Where Am I? (k-NN Match)</string>
+    <string name="logs_will_appear_here">Logs will appear here...</string>
+</resources>
