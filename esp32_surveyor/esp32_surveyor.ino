@@ -192,6 +192,26 @@ void runSurvey() {
   isSurveying = false;
 }
 
+// Statically allocated export buffers (in BSS, 0 bytes on stack) to prevent ESP32 8KB stack overflow
+struct SpotMeta {
+  int id;
+  char name[32];
+};
+
+struct ApMeta {
+  int id;
+  char bssid[20];
+  char ssid[34];
+};
+
+const int MAX_EXPORT_SPOTS = 50;
+const int MAX_EXPORT_APS = 100;
+const int MAX_EXPORT_SAMPLES = 1000;
+
+static SpotMeta exportSpots[MAX_EXPORT_SPOTS];
+static ApMeta exportAps[MAX_EXPORT_APS];
+static int exportReadings[MAX_EXPORT_SAMPLES];
+
 // Export Flash data into the standard CSV format expected by analyze_fingerprints.py
 void dumpDataToSerial() {
   Serial.println("\n========== START OF EXPORT (wifi_fingerprints.csv) ==========");
@@ -203,72 +223,89 @@ void dumpDataToSerial() {
     return;
   }
 
-  // Load spots into memory (static avoids ESP32 8KB stack overflow)
-  struct SpotEntry { int id; String name; };
-  static SpotEntry spots[50];
+  // Load spots into memory (0 bytes on stack)
   int spotCount = 0;
   File sf = LittleFS.open("/spots.csv", FILE_READ);
-  while (sf.available() && spotCount < 50) {
-    String line = sf.readStringUntil('\n');
-    line.trim();
-    int c = line.indexOf(',');
-    if (c > 0) {
-      spots[spotCount].id = line.substring(0, c).toInt();
-      spots[spotCount].name = line.substring(c + 1);
-      spotCount++;
+  if (sf) {
+    char buf[64];
+    while (sf.available() && spotCount < MAX_EXPORT_SPOTS) {
+      int len = sf.readBytesUntil('\n', buf, sizeof(buf) - 1);
+      buf[len] = '\0';
+      char* comma = strchr(buf, ',');
+      if (comma) {
+        *comma = '\0';
+        exportSpots[spotCount].id = atoi(buf);
+        char* name = comma + 1;
+        while (*name == ' ') name++;
+        int nlen = strlen(name);
+        while (nlen > 0 && (name[nlen - 1] == '\r' || name[nlen - 1] == '\n' || name[nlen - 1] == ' ')) {
+          name[--nlen] = '\0';
+        }
+        strncpy(exportSpots[spotCount].name, name, sizeof(exportSpots[spotCount].name) - 1);
+        exportSpots[spotCount].name[sizeof(exportSpots[spotCount].name) - 1] = '\0';
+        spotCount++;
+      }
     }
+    sf.close();
   }
-  sf.close();
 
-  // Load APs into memory (static avoids ESP32 8KB stack overflow)
-  struct ApEntry { int id; String bssid; String ssid; };
-  static ApEntry aps[100];
+  // Load APs into memory (0 bytes on stack)
   int apCount = 0;
   File af = LittleFS.open("/aps.csv", FILE_READ);
-  while (af.available() && apCount < 100) {
-    String line = af.readStringUntil('\n');
-    line.trim();
-    int c1 = line.indexOf(',');
-    int c2 = line.indexOf(',', c1 + 1);
-    if (c1 > 0 && c2 > c1) {
-      aps[apCount].id = line.substring(0, c1).toInt();
-      aps[apCount].bssid = line.substring(c1 + 1, c2);
-      aps[apCount].ssid = line.substring(c2 + 1);
-      apCount++;
+  if (af) {
+    char buf[96];
+    while (af.available() && apCount < MAX_EXPORT_APS) {
+      int len = af.readBytesUntil('\n', buf, sizeof(buf) - 1);
+      buf[len] = '\0';
+      char* c1 = strchr(buf, ',');
+      if (c1) {
+        *c1 = '\0';
+        int id = atoi(buf);
+        char* bssid = c1 + 1;
+        char* c2 = strchr(bssid, ',');
+        if (c2) {
+          *c2 = '\0';
+          char* ssid = c2 + 1;
+          int slen = strlen(ssid);
+          while (slen > 0 && (ssid[slen - 1] == '\r' || ssid[slen - 1] == '\n')) {
+            ssid[--slen] = '\0';
+          }
+          exportAps[apCount].id = id;
+          strncpy(exportAps[apCount].bssid, bssid, sizeof(exportAps[apCount].bssid) - 1);
+          exportAps[apCount].bssid[sizeof(exportAps[apCount].bssid) - 1] = '\0';
+          strncpy(exportAps[apCount].ssid, ssid, sizeof(exportAps[apCount].ssid) - 1);
+          exportAps[apCount].ssid[sizeof(exportAps[apCount].ssid) - 1] = '\0';
+          apCount++;
+        }
+      }
     }
+    af.close();
   }
-  af.close();
 
-  // Parse measurements per (spot_id, ap_id)
+  // Parse measurements per (spot_id, ap_id) and stream to Serial
   unsigned long exportTimestamp = millis();
 
   for (int s = 0; s < spotCount; s++) {
-    int sId = spots[s].id;
-    String sName = spots[s].name;
+    int sId = exportSpots[s].id;
+    const char* sName = exportSpots[s].name;
 
     for (int a = 0; a < apCount; a++) {
-      int aId = aps[a].id;
-      String aBssid = aps[a].bssid;
-      String aSsid = aps[a].ssid;
+      int aId = exportAps[a].id;
+      const char* aBssid = exportAps[a].bssid;
+      const char* aSsid = exportAps[a].ssid;
 
-      // Scan measurements file for (sId, aId)
       File mf = LittleFS.open("/measurements.csv", FILE_READ);
-      const int MAX_EXPORT_SAMPLES = 1000;
-      static int readings[MAX_EXPORT_SAMPLES];
+      if (!mf) continue;
+
       int readCount = 0;
-
+      char mbuf[48];
       while (mf.available() && readCount < MAX_EXPORT_SAMPLES) {
-        String line = mf.readStringUntil('\n');
-        line.trim();
-        int c1 = line.indexOf(',');
-        int c2 = line.indexOf(',', c1 + 1);
-        if (c1 > 0 && c2 > c1) {
-          int rowSpot = line.substring(0, c1).toInt();
-          int rowAp = line.substring(c1 + 1, c2).toInt();
-          int rowRssi = line.substring(c2 + 1).toInt();
-
+        int len = mf.readBytesUntil('\n', mbuf, sizeof(mbuf) - 1);
+        mbuf[len] = '\0';
+        int rowSpot = 0, rowAp = 0, rowRssi = 0;
+        if (sscanf(mbuf, "%d,%d,%d", &rowSpot, &rowAp, &rowRssi) == 3) {
           if (rowSpot == sId && rowAp == aId) {
-            readings[readCount++] = rowRssi;
+            exportReadings[readCount++] = rowRssi;
           }
         }
       }
@@ -276,23 +313,30 @@ void dumpDataToSerial() {
 
       if (readCount >= 5) {
         long sum = 0;
-        String rawStr = "\"[";
         for (int k = 0; k < readCount; k++) {
-          sum += readings[k];
-          rawStr += String(readings[k]);
-          if (k < readCount - 1) rawStr += ";";
+          sum += exportReadings[k];
         }
-        rawStr += "]\"";
         int avgRssi = round((float)sum / readCount);
 
-        Serial.printf("%lu,%s,%s,%s,%d,%s,%d\n",
-                      exportTimestamp,
-                      sName.c_str(),
-                      aBssid.c_str(),
-                      aSsid.c_str(),
-                      readCount,
-                      rawStr.c_str(),
-                      avgRssi);
+        // Stream output directly to UART without gigantic String or printf buffer
+        Serial.print(exportTimestamp);
+        Serial.print(",");
+        Serial.print(sName);
+        Serial.print(",");
+        Serial.print(aBssid);
+        Serial.print(",");
+        Serial.print(aSsid);
+        Serial.print(",");
+        Serial.print(readCount);
+        Serial.print(",\"[");
+        for (int k = 0; k < readCount; k++) {
+          Serial.print(exportReadings[k]);
+          if (k < readCount - 1) {
+            Serial.print(";");
+          }
+        }
+        Serial.print("]\",");
+        Serial.println(avgRssi);
       }
     }
   }
