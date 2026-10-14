@@ -158,8 +158,6 @@ void runSurvey() {
 
     int percent = ((iter + 1) * 100) / TARGET_SAMPLES;
     Serial.printf("  Progress: %d/%d (%d%%) - %d visible APs\n", iter + 1, TARGET_SAMPLES, percent, n);
-
-    delay(300); // Radio settling time
   }
 
   // Save compact integer ID records to Flash
@@ -182,17 +180,7 @@ void runSurvey() {
     Serial.println("❌ Error opening /measurements.csv for writing!");
   }
 
-  // Visual success indicator: 3 slow blinks then solid ON for 1.5 seconds
-  for (int b = 0; b < 3; b++) {
-    digitalWrite(LED_PIN, HIGH);
-    delay(150);
-    digitalWrite(LED_PIN, LOW);
-    delay(150);
-  }
-  digitalWrite(LED_PIN, HIGH);
-  delay(1500);
-  digitalWrite(LED_PIN, LOW);
-
+  digitalWrite(LED_PIN, LOW); // Immediate completion without cosmetic delays
   isSurveying = false;
 }
 
