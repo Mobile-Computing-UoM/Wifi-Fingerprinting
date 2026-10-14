@@ -8,6 +8,7 @@ import android.net.wifi.WifiManager
 import android.content.Context
 import android.Manifest
 import android.widget.ScrollView
+import android.widget.ProgressBar
 import android.os.Handler
 import android.os.Looper
 import kotlin.math.roundToInt
@@ -44,6 +45,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnClearData: Button
     private lateinit var btnSettings: Button
     private lateinit var tvSettingsSummary: TextView
+    private lateinit var progressBar: ProgressBar
+    private lateinit var tvProgressLabel: TextView
+    private lateinit var tvProgressText: TextView
 
     private lateinit var wifiManager: WifiManager
     private val surveyDatabase = mutableListOf<Fingerprint>()
@@ -84,7 +88,19 @@ class MainActivity : AppCompatActivity() {
             apply()
         }
         updateSettingsSummary()
+        if (!isScanningActive) {
+            updateProgressDisplay(0, surveySampleCount, "Survey Progress")
+        }
         log("\n⚙️ Settings saved: Survey=$survey | Locate=$locate | k-NN=$knn\n")
+    }
+
+    private fun updateProgressDisplay(current: Int, total: Int, label: String? = null) {
+        if (label != null) {
+            tvProgressLabel.text = label
+        }
+        val percent = if (total > 0) (current * 100) / total else 0
+        progressBar.progress = percent
+        tvProgressText.text = "$current/$total ($percent% completed)"
     }
 
     private fun updateSettingsSummary() {
@@ -142,11 +158,10 @@ class MainActivity : AppCompatActivity() {
 
         if (isSurveying) {
             val spot = editSpotName.text.toString().trim()
-            log("\n--- Survey Results for $spot ($activeTargetSamples iterations) ---\n")
+            updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Survey Completed: '$spot'")
+            log("\n--- Survey Results for '$spot' ($activeTargetSamples iterations) ---\n")
             for (m in processedMeasurements) {
-                log("${m.ssid} (${m.bssid})\n")
-                log("  Readings (${m.rawReadings.size}): ${m.rawReadings}\n")
-                log("  Avg: ${m.avgRssi} dBm\n")
+                log("• ${m.ssid} (${m.bssid}): Avg ${m.avgRssi} dBm (${m.rawReadings.size} samples)\n")
             }
 
             // Save to memory
@@ -155,9 +170,10 @@ class MainActivity : AppCompatActivity() {
             // Save to CSV file with all raw samples
             saveFingerprintToCsv(spot, processedMeasurements)
 
-            log("\n💾 Saved '$spot' with ${averagedFingerprint.size} APs to database & CSV.\n")
+            log("💾 Saved '$spot' with ${averagedFingerprint.size} APs to database & CSV.\n")
             log("Total spots in memory: ${surveyDatabase.size}\n")
         } else {
+            updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Locate Completed")
             // Locate Mode: Log live readings and run k-NN on available dimensions
             log("\n--- Live Scan ($activeTargetSamples iterations) ---\n")
             for (m in processedMeasurements) {
@@ -322,7 +338,14 @@ class MainActivity : AppCompatActivity() {
             val scanResults = wifiManager.scanResults
             currentSampleCount++
 
-            log("Sample $currentSampleCount of $activeTargetSamples collected (${scanResults.size} APs visible).\n")
+            // Update horizontal progress bar (currentiteration/totaliteration) percentile completed
+            val label = if (isSurveying) "Surveying '${editSpotName.text.toString().trim()}'..." else "Locating..."
+            updateProgressDisplay(currentSampleCount, activeTargetSamples, label)
+
+            // When surveying, suppress intermediate scan logging to avoid cluttering the UI
+            if (!isSurveying) {
+                log("Sample $currentSampleCount of $activeTargetSamples collected (${scanResults.size} APs visible).\n")
+            }
 
             // Accumulate RSSI for each BSSID seen in this scan
             for (ap in scanResults) {
@@ -349,7 +372,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private fun triggerWifiScan() {
-        log("Starting Wi-Fi scan...\n")
+        if (!isSurveying) {
+            log("Starting Wi-Fi scan...\n")
+        }
         val started = wifiManager.startScan()
         if (!started) {
             log("⚠️ Scan throttled by Android OS (Retrying in 2s)...\n")
@@ -405,12 +430,16 @@ class MainActivity : AppCompatActivity() {
         btnClearData = findViewById(R.id.btnClearData)
         btnSettings = findViewById(R.id.btnSettings)
         tvSettingsSummary = findViewById(R.id.tvSettingsSummary)
+        progressBar = findViewById(R.id.progressBar)
+        tvProgressLabel = findViewById(R.id.tvProgressLabel)
+        tvProgressText = findViewById(R.id.tvProgressText)
 
         wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         log("App initialized.\n")
         checkAndRequestPermissions()
         loadSettings() // Load user-configured parameters from SharedPreferences
         loadFingerprintsFromCsv() // Load saved spots from CSV
+        updateProgressDisplay(0, surveySampleCount, "Survey Progress")
 
         val intentFilter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
         registerReceiver(wifiScanReceiver, intentFilter)
@@ -449,8 +478,10 @@ class MainActivity : AppCompatActivity() {
             bssidToSsidMap.clear()
             currentSampleCount = 0
 
+            updateProgressDisplay(0, activeTargetSamples, "Surveying '$spot'...")
+
             log("\n========================================\n")
-            log("Collecting $surveySampleCount samples for '$spot'...\n")
+            log("Survey started for '$spot' ($activeTargetSamples iterations)...\n")
             log("========================================\n")
 
             triggerWifiScan()
@@ -479,6 +510,8 @@ class MainActivity : AppCompatActivity() {
             sampleBuffer.clear()
             bssidToSsidMap.clear()
             currentSampleCount = 0
+
+            updateProgressDisplay(0, activeTargetSamples, "Locating position...")
 
             log("\n========================================\n")
             log("📍 Locating position (averaging $locateSampleCount scans, $knnK-NN)...\n")
