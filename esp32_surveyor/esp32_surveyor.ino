@@ -17,15 +17,15 @@
 
 // Configuration
 #define BUTTON_PIN 0          // Built-in BOOT button on ESP32 NodeMCU
-#define LED_PIN 2             // Built-in Blue LED
-const int TARGET_SAMPLES = 385; // Iterations per survey spot
-const int MAX_APS = 35;       // Max APs buffered per single spot
+const int TARGET_SAMPLES = 385;       // Iterations per survey spot
+const int CHECKPOINT_INTERVAL = 25;    // Checkpoint interval: flush to Flash every 25 scans
+const int MAX_APS = 35;                // Max APs buffered per checkpoint
 
-// In-Memory Survey Buffer (Temporary RAM for current active spot)
+// In-Memory Survey Buffer (Temporary RAM for active checkpoint)
 struct ApSurveyBuffer {
   String bssid;
   String ssid;
-  int8_t rssiSamples[TARGET_SAMPLES]; // int8_t saves ~40KB RAM over int
+  int8_t rssiSamples[CHECKPOINT_INTERVAL]; // Only 25 bytes per AP! Micro-memory footprint
   int count;
 };
 
@@ -104,7 +104,28 @@ int getOrRegisterApId(String bssid, String ssid) {
   return assignedId;
 }
 
-// Execute 50-iteration survey
+// Flush buffered checkpoint samples directly to Flash
+void flushCheckpoint(int currentSpotId) {
+  File dataFile = LittleFS.open("/measurements.csv", FILE_APPEND);
+  if (!dataFile) {
+    Serial.println("❌ Error opening /measurements.csv for checkpoint!");
+    return;
+  }
+
+  for (int i = 0; i < totalApsFound; i++) {
+    if (dynamicAps[i].count > 0) {
+      int apId = getOrRegisterApId(dynamicAps[i].bssid, dynamicAps[i].ssid);
+      for (int k = 0; k < dynamicAps[i].count; k++) {
+        // Format: spot_id,ap_id,rssi
+        dataFile.printf("%d,%d,%d\n", currentSpotId, apId, dynamicAps[i].rssiSamples[k]);
+      }
+      dynamicAps[i].count = 0; // Empty the buffer for the next checkpoint
+    }
+  }
+  dataFile.close();
+}
+
+// Execute survey with periodic checkpoint flushes
 void runSurvey() {
   isSurveying = true;
   totalApsFound = 0;
@@ -121,6 +142,7 @@ void runSurvey() {
 
   Serial.println("\n==================================================");
   Serial.printf("📍 STARTING SURVEY: %s (Spot ID: %d) [%d scans]\n", spotLabel.c_str(), currentSpotId, TARGET_SAMPLES);
+  Serial.printf("   Auto-checkpointing to Flash every %d scans\n", CHECKPOINT_INTERVAL);
   Serial.println("==================================================");
 
   for (int iter = 0; iter < TARGET_SAMPLES; iter++) {
@@ -149,38 +171,23 @@ void runSurvey() {
         dynamicAps[idx].count = 0;
       }
 
-      if (idx != -1 && dynamicAps[idx].count < TARGET_SAMPLES) {
+      if (idx != -1 && dynamicAps[idx].count < CHECKPOINT_INTERVAL) {
         dynamicAps[idx].rssiSamples[dynamicAps[idx].count++] = (int8_t)rssi;
       }
     }
 
     int percent = ((iter + 1) * 100) / TARGET_SAMPLES;
     Serial.printf("  Progress: %d/%d (%d%%) - %d visible APs\n", iter + 1, TARGET_SAMPLES, percent, n);
+
+    // CHECKPOINT: Flush to Flash every CHECKPOINT_INTERVAL scans (or on final scan)
+    if ((iter + 1) % CHECKPOINT_INTERVAL == 0 || (iter + 1) == TARGET_SAMPLES) {
+      flushCheckpoint(currentSpotId);
+      Serial.printf("  💾 [CHECKPOINT] Scans up to #%d safely written to Flash!\n", iter + 1);
+    }
   }
 
   digitalWrite(LED_PIN, LOW); // Turn off when survey finishes
-
-  // Save compact integer ID records to Flash
-  Serial.println("\n💾 Converting strings to integer IDs and writing to Flash...");
-  File dataFile = LittleFS.open("/measurements.csv", FILE_APPEND);
-  if (dataFile) {
-    for (int i = 0; i < totalApsFound; i++) {
-      // Discard APs heard fewer than 5 times
-      if (dynamicAps[i].count >= 5) {
-        int apId = getOrRegisterApId(dynamicAps[i].bssid, dynamicAps[i].ssid);
-        for (int k = 0; k < dynamicAps[i].count; k++) {
-          // Format: spot_id,ap_id,rssi
-          dataFile.printf("%d,%d,%d\n", currentSpotId, apId, dynamicAps[i].rssiSamples[k]);
-        }
-      }
-    }
-    dataFile.close();
-    Serial.printf("✅ Saved '%s' successfully! Move to next room and press BOOT again.\n\n", spotLabel.c_str());
-  } else {
-    Serial.println("❌ Error opening /measurements.csv for writing!");
-  }
-
-  digitalWrite(LED_PIN, LOW); // Immediate completion without cosmetic delays
+  Serial.printf("✅ Completed '%s' (%d scans)! Move to next room and press BOOT again.\n\n", spotLabel.c_str(), TARGET_SAMPLES);
   isSurveying = false;
 }
 
@@ -245,10 +252,11 @@ void dumpDataToSerial() {
 
       // Scan measurements file for (sId, aId)
       File mf = LittleFS.open("/measurements.csv", FILE_READ);
-      int8_t readings[TARGET_SAMPLES];
+      const int MAX_EXPORT_SAMPLES = 1000;
+      int8_t readings[MAX_EXPORT_SAMPLES];
       int readCount = 0;
 
-      while (mf.available() && readCount < TARGET_SAMPLES) {
+      while (mf.available() && readCount < MAX_EXPORT_SAMPLES) {
         String line = mf.readStringUntil('\n');
         line.trim();
         int c1 = line.indexOf(',');
