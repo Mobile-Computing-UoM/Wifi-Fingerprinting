@@ -12,9 +12,9 @@ import os
 import re
 import pandas as pd
 import numpy as np
+import sys
 import matplotlib.pyplot as plt
 
-CSV_PATH = "wifi_fingerprints.csv"
 OUTPUT_DIR = "distribution_plots"
 
 def extract_samples_from_row(row):
@@ -31,14 +31,18 @@ def extract_samples_from_row(row):
     return best_samples
 
 def main():
-    if not os.path.exists(CSV_PATH):
-        print(f"❌ Error: '{CSV_PATH}' not found in current directory.")
-        print("💡 Pull it from your phone first: adb pull /sdcard/Android/data/com.example.wififingerprint/files/wifi_fingerprints.csv .")
+    csv_file = sys.argv[1] if len(sys.argv) > 1 else "wifi_fingerprints.csv"
+    if not os.path.exists(csv_file) and os.path.exists("phone_fingerprints.csv"):
+        csv_file = "phone_fingerprints.csv"
+
+    if not os.path.exists(csv_file):
+        print(f"❌ Error: '{csv_file}' not found in current directory.")
+        print("💡 Specify a CSV file: python analyze_fingerprints.py [path_to_csv]")
         return
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    df = pd.read_csv(CSV_PATH)
-    print(f"📂 Loaded '{CSV_PATH}' with {len(df)} total records.\n")
+    df = pd.read_csv(csv_file)
+    print(f"📂 Loaded '{csv_file}' with {len(df)} total records.\n")
 
     df["parsed_samples"] = df.apply(extract_samples_from_row, axis=1)
 
@@ -47,11 +51,6 @@ def main():
     df = df[df["parsed_samples"].apply(lambda s: len(s) > 30)].copy()
     filtered_count = len(df)
     print(f"🔍 Filtered for records with > 30 iterations: {filtered_count} valid records kept (discarded {initial_count - filtered_count} older/low-sample records).\n")
-
-    # Clean existing plot images to ensure only current valid spots exist
-    for f in os.listdir(OUTPUT_DIR):
-        if f.endswith(".png"):
-            os.remove(os.path.join(OUTPUT_DIR, f))
 
     spots = df["spot_label"].unique()
 

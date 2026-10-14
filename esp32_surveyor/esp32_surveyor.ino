@@ -203,9 +203,9 @@ void dumpDataToSerial() {
     return;
   }
 
-  // Load spots into memory
+  // Load spots into memory (static avoids ESP32 8KB stack overflow)
   struct SpotEntry { int id; String name; };
-  SpotEntry spots[50];
+  static SpotEntry spots[50];
   int spotCount = 0;
   File sf = LittleFS.open("/spots.csv", FILE_READ);
   while (sf.available() && spotCount < 50) {
@@ -220,9 +220,9 @@ void dumpDataToSerial() {
   }
   sf.close();
 
-  // Load APs into memory
+  // Load APs into memory (static avoids ESP32 8KB stack overflow)
   struct ApEntry { int id; String bssid; String ssid; };
-  ApEntry aps[100];
+  static ApEntry aps[100];
   int apCount = 0;
   File af = LittleFS.open("/aps.csv", FILE_READ);
   while (af.available() && apCount < 100) {
@@ -254,7 +254,7 @@ void dumpDataToSerial() {
       // Scan measurements file for (sId, aId)
       File mf = LittleFS.open("/measurements.csv", FILE_READ);
       const int MAX_EXPORT_SAMPLES = 1000;
-      int readings[MAX_EXPORT_SAMPLES];
+      static int readings[MAX_EXPORT_SAMPLES];
       int readCount = 0;
 
       while (mf.available() && readCount < MAX_EXPORT_SAMPLES) {

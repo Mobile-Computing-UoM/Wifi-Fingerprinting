@@ -58,9 +58,13 @@ def main():
                     elif "END OF EXPORT" in line:
                         saving_dump = False
                         if dump_lines:
-                            with open("wifi_fingerprints.csv", "w") as f:
+                            out_file = "esp32_fingerprints.csv"
+                            backup_file = f"esp32_fingerprints_{int(time.time())}.csv"
+                            with open(out_file, "w") as f:
                                 f.write("".join(dump_lines))
-                            print(f"\n🎉 Successfully saved {len(dump_lines)} lines to 'wifi_fingerprints.csv'!\n")
+                            with open(backup_file, "w") as f:
+                                f.write("".join(dump_lines))
+                            print(f"\n🎉 Saved {len(dump_lines)} lines to '{out_file}' and backup '{backup_file}' (Phone CSV protected)!\n")
                     elif saving_dump and not line.startswith("="):
                         dump_lines.append(line)
         except Exception:
