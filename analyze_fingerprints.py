@@ -13,19 +13,22 @@ import re
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import norm
 
 CSV_PATH = "wifi_fingerprints.csv"
 OUTPUT_DIR = "distribution_plots"
 
-def parse_samples(sample_str):
-    """Parses '[-52;-50;-55]' into a list of integers."""
-    if not isinstance(sample_str, str):
-        return []
-    clean_str = sample_str.strip('"[] ')
-    # Handles semicolons, commas, or spaces
-    parts = re.split(r'[;, ]+', clean_str)
-    return [int(p) for p in parts if p.lstrip('-+').isdigit()]
+def extract_samples_from_row(row):
+    """Robustly extracts all raw integer samples from whichever column contains the bracketed array."""
+    best_samples = []
+    for col in ["raw_samples", "filtered_samples", "samples"]:
+        if col in row and isinstance(row[col], str) and "[" in row[col]:
+            clean_str = row[col].strip('"[] ')
+            nums = [int(p) for p in re.split(r'[;, ]+', clean_str) if p.lstrip('-+').isdigit()]
+            if len(nums) > len(best_samples):
+                best_samples = nums
+    if not best_samples and "avg_rssi" in row and pd.notna(row["avg_rssi"]):
+        best_samples = [int(row["avg_rssi"])]
+    return best_samples
 
 def main():
     if not os.path.exists(CSV_PATH):
@@ -37,12 +40,18 @@ def main():
     df = pd.read_csv(CSV_PATH)
     print(f"📂 Loaded '{CSV_PATH}' with {len(df)} total records.\n")
 
-    # If samples column exists, parse it; else fallback
-    if "samples" in df.columns:
-        df["parsed_samples"] = df["samples"].apply(parse_samples)
-    else:
-        print("⚠️ Note: 'samples' column not found. Using 'avg_rssi' as single points.")
-        df["parsed_samples"] = df["avg_rssi"].apply(lambda x: [int(x)])
+    df["parsed_samples"] = df.apply(extract_samples_from_row, axis=1)
+
+    # Filter: Only consider records where iteration/sample count > 30
+    initial_count = len(df)
+    df = df[df["parsed_samples"].apply(lambda s: len(s) > 30)].copy()
+    filtered_count = len(df)
+    print(f"🔍 Filtered for records with > 30 iterations: {filtered_count} valid records kept (discarded {initial_count - filtered_count} older/low-sample records).\n")
+
+    # Clean existing plot images to ensure only current valid spots exist
+    for f in os.listdir(OUTPUT_DIR):
+        if f.endswith(".png"):
+            os.remove(os.path.join(OUTPUT_DIR, f))
 
     spots = df["spot_label"].unique()
 
@@ -96,7 +105,7 @@ def main():
             # 2. Gaussian Fit Curve
             if std_val > 0:
                 x_axis = np.linspace(min(samples) - 4, max(samples) + 4, 200)
-                pdf_curve = norm.pdf(x_axis, mean_val, std_val)
+                pdf_curve = np.exp(-0.5 * ((x_axis - mean_val) / std_val) ** 2) / (std_val * np.sqrt(2 * np.pi))
                 ax.plot(x_axis, pdf_curve, color="#0D47A1", lw=2, label="Gaussian Fit")
 
                 # Shaded standard deviation bands
