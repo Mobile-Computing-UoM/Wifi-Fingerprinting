@@ -18,14 +18,14 @@
 // Configuration
 #define BUTTON_PIN 0          // Built-in BOOT button on ESP32 NodeMCU
 #define LED_PIN 2             // Built-in Blue LED
-const int TARGET_SAMPLES = 50; // Iterations per survey spot
+const int TARGET_SAMPLES = 385; // Iterations per survey spot
 const int MAX_APS = 35;       // Max APs buffered per single spot
 
 // In-Memory Survey Buffer (Temporary RAM for current active spot)
 struct ApSurveyBuffer {
   String bssid;
   String ssid;
-  int rssiSamples[TARGET_SAMPLES];
+  int8_t rssiSamples[TARGET_SAMPLES]; // int8_t saves ~40KB RAM over int
   int count;
 };
 
@@ -124,8 +124,8 @@ void runSurvey() {
   Serial.println("==================================================");
 
   for (int iter = 0; iter < TARGET_SAMPLES; iter++) {
-    // LED blink during scan
-    digitalWrite(LED_PIN, HIGH);
+    // LED toggles on every scan so it visibly blinks without needing any artificial delay
+    digitalWrite(LED_PIN, (iter % 2 == 0) ? HIGH : LOW);
 
     int n = WiFi.scanNetworks();
 
@@ -150,15 +150,15 @@ void runSurvey() {
       }
 
       if (idx != -1 && dynamicAps[idx].count < TARGET_SAMPLES) {
-        dynamicAps[idx].rssiSamples[dynamicAps[idx].count++] = rssi;
+        dynamicAps[idx].rssiSamples[dynamicAps[idx].count++] = (int8_t)rssi;
       }
     }
-
-    digitalWrite(LED_PIN, LOW);
 
     int percent = ((iter + 1) * 100) / TARGET_SAMPLES;
     Serial.printf("  Progress: %d/%d (%d%%) - %d visible APs\n", iter + 1, TARGET_SAMPLES, percent, n);
   }
+
+  digitalWrite(LED_PIN, LOW); // Turn off when survey finishes
 
   // Save compact integer ID records to Flash
   Serial.println("\n💾 Converting strings to integer IDs and writing to Flash...");
@@ -245,7 +245,7 @@ void dumpDataToSerial() {
 
       // Scan measurements file for (sId, aId)
       File mf = LittleFS.open("/measurements.csv", FILE_READ);
-      int readings[TARGET_SAMPLES];
+      int8_t readings[TARGET_SAMPLES];
       int readCount = 0;
 
       while (mf.available() && readCount < TARGET_SAMPLES) {
