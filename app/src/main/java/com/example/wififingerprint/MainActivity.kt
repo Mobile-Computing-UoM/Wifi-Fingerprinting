@@ -322,6 +322,17 @@ class MainActivity : AppCompatActivity() {
             // CRITICAL: Ignore automatic background scans triggered by Android OS!
             if (!isScanningActive) return
 
+            // CRITICAL: Reject stale/cached scan results. Verify Android actually completed a fresh scan!
+            val updated = intent?.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false) ?: false
+            if (!updated) {
+                // Android did not perform a new scan (throttled/cached results).
+                // Do NOT increment sample count or record duplicates! Schedule a retry.
+                scanHandler.postDelayed({
+                    if (isScanningActive) triggerWifiScan()
+                }, 1500)
+                return
+            }
+
             if (ActivityCompat.checkSelfPermission(
                     this@MainActivity,
                     Manifest.permission.ACCESS_FINE_LOCATION
@@ -336,6 +347,13 @@ class MainActivity : AppCompatActivity() {
             }
 
             val scanResults = wifiManager.scanResults
+            if (scanResults.isEmpty()) {
+                scanHandler.postDelayed({
+                    if (isScanningActive) triggerWifiScan()
+                }, 1200)
+                return
+            }
+
             currentSampleCount++
 
             // Update horizontal progress bar (currentiteration/totaliteration) percentile completed
@@ -420,6 +438,7 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_main)
 
         editSpotName = findViewById(R.id.editSpotName)
@@ -547,6 +566,7 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onDestroy() {
         super.onDestroy()
+        scanHandler.removeCallbacksAndMessages(null)
         unregisterReceiver(wifiScanReceiver)
     }
     private fun log(message: String) {
