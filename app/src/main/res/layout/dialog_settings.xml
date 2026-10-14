@@ -8,7 +8,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Survey Iteration Count (Scans per Spot):"
+        android:text="Survey Iteration Count (Total Scans per Spot):"
         android:textStyle="bold"
         android:textSize="14sp" />
 
@@ -17,8 +17,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:inputType="number"
-        android:hint="e.g. 10"
-        android:layout_marginBottom="12dp" />
+        android:hint="e.g. 20, 50, 100..."
+        android:layout_marginBottom="14dp" />
 
     <TextView
         android:layout_width="match_parent"
@@ -33,7 +33,7 @@
         android:layout_height="wrap_content"
         android:inputType="number"
         android:hint="e.g. 10"
-        android:layout_marginBottom="12dp" />
+        android:layout_marginBottom="14dp" />
 
     <TextView
         android:layout_width="match_parent"
@@ -47,21 +47,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:inputType="number"
-        android:hint="e.g. 1"
-        android:layout_marginBottom="12dp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Outlier Filter k-Closest (Samples to keep):"
-        android:textStyle="bold"
-        android:textSize="14sp" />
-
-    <EditText
-        android:id="@+id/editOutlierK"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:inputType="number"
-        android:hint="e.g. 6" />
+        android:hint="e.g. 1" />
 
 </LinearLayout>

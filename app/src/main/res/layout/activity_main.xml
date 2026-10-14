@@ -33,7 +33,7 @@
         android:id="@+id/tvSettingsSummary"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Params: Survey=10 | Locate=10 | k-NN=1 | Filter=6"
+        android:text="Params: Survey=20 | Locate=10 | k-NN=1"
         android:textSize="12sp"
         android:textColor="#555555"
         android:layout_marginBottom="8dp" />

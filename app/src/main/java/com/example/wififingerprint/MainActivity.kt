@@ -50,11 +50,10 @@ class MainActivity : AppCompatActivity() {
     private val CSV_FILE_NAME = "wifi_fingerprints.csv"
 
     // Configurable parameters (persisted in SharedPreferences)
-    private var surveySampleCount = 10     // Scans per survey spot
-    private var locateSampleCount = 10     // Scans for locate
-    private var knnK = 1                  // k for k-NN matching
-    private var outlierFilterK = 6        // K-closest samples to keep
-    private var activeTargetSamples = 10  // Current active target
+    private var surveySampleCount = 20    // Scans per survey spot (can be set large, e.g. 50, 100)
+    private var locateSampleCount = 10    // Scans for locate
+    private var knnK = 1                 // k for k-NN matching
+    private var activeTargetSamples = 20 // Current active target
 
     private var currentSampleCount = 0
     private var isSurveying = true // true = Survey mode, false = Locate mode
@@ -66,33 +65,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         val prefs = getSharedPreferences("FingerprintSettings", Context.MODE_PRIVATE)
-        surveySampleCount = prefs.getInt("survey_count", 10)
+        surveySampleCount = prefs.getInt("survey_count", 20)
         locateSampleCount = prefs.getInt("locate_count", 10)
         knnK = prefs.getInt("knn_k", 1)
-        outlierFilterK = prefs.getInt("outlier_k", 6)
         updateSettingsSummary()
     }
 
-    private fun saveSettings(survey: Int, locate: Int, knn: Int, outlier: Int) {
+    private fun saveSettings(survey: Int, locate: Int, knn: Int) {
         surveySampleCount = survey
         locateSampleCount = locate
         knnK = knn
-        outlierFilterK = outlier
 
         val prefs = getSharedPreferences("FingerprintSettings", Context.MODE_PRIVATE)
         prefs.edit().apply {
             putInt("survey_count", survey)
             putInt("locate_count", locate)
             putInt("knn_k", knn)
-            putInt("outlier_k", outlier)
             apply()
         }
         updateSettingsSummary()
-        log("\n⚙️ Settings saved: Survey=$survey | Locate=$locate | k-NN=$knn | OutlierFilter=$outlier\n")
+        log("\n⚙️ Settings saved: Survey=$survey | Locate=$locate | k-NN=$knn\n")
     }
 
     private fun updateSettingsSummary() {
-        tvSettingsSummary.text = "Params: Survey=$surveySampleCount | Locate=$locateSampleCount | k-NN=$knnK | Filter=$outlierFilterK"
+        tvSettingsSummary.text = "Params: Survey=$surveySampleCount | Locate=$locateSampleCount | k-NN=$knnK"
     }
 
     private fun showSettingsDialog() {
@@ -100,12 +96,10 @@ class MainActivity : AppCompatActivity() {
         val editSurvey = dialogView.findViewById<EditText>(R.id.editSurveyCount)
         val editLocate = dialogView.findViewById<EditText>(R.id.editLocateCount)
         val editKnn = dialogView.findViewById<EditText>(R.id.editKnnK)
-        val editOutlier = dialogView.findViewById<EditText>(R.id.editOutlierK)
 
         editSurvey.setText(surveySampleCount.toString())
         editLocate.setText(locateSampleCount.toString())
         editKnn.setText(knnK.toString())
-        editOutlier.setText(outlierFilterK.toString())
 
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Configure Parameters")
@@ -114,97 +108,61 @@ class MainActivity : AppCompatActivity() {
                 val sCount = editSurvey.text.toString().toIntOrNull() ?: surveySampleCount
                 val lCount = editLocate.text.toString().toIntOrNull() ?: locateSampleCount
                 val kVal = editKnn.text.toString().toIntOrNull() ?: knnK
-                val outVal = editOutlier.text.toString().toIntOrNull() ?: outlierFilterK
 
-                if (sCount <= 0 || lCount <= 0 || kVal <= 0 || outVal <= 0) {
+                if (sCount <= 0 || lCount <= 0 || kVal <= 0) {
                     Toast.makeText(this, "Parameters must be positive integers!", Toast.LENGTH_SHORT).show()
-                } else if (outVal > sCount) {
-                    Toast.makeText(this, "Outlier filter ($outVal) cannot exceed survey count ($sCount)!", Toast.LENGTH_LONG).show()
                 } else {
-                    saveSettings(sCount, lCount, kVal, outVal)
+                    saveSettings(sCount, lCount, kVal)
                 }
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    // Structure holding raw readings, filtered readings, and calculated average
+    // Structure holding all raw measurements and calculated average for each AP
     data class ApMeasurement(
         val bssid: String,
         val ssid: String,
         val rawReadings: List<Int>,
-        val filteredReadings: List<Int>,
         val avgRssi: Int
     )
-
-    // Outlier rejection: Calculates median, sorts by distance to median, keeps k closest points
-    private fun filterKClosestPoints(readings: List<Int>, k: Int): List<Int> {
-        if (readings.size <= k) return readings.sorted()
-
-        val sorted = readings.sorted()
-        val median = if (sorted.size % 2 == 1) {
-            sorted[sorted.size / 2].toDouble()
-        } else {
-            (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2.0
-        }
-
-        // Sort by absolute distance from median, take top k closest, and return in sorted order
-        return readings.sortedBy { kotlin.math.abs(it - median) }.take(k).sorted()
-    }
 
     private fun processAndSaveAveragedFingerprint() {
         val processedMeasurements = mutableListOf<ApMeasurement>()
         val averagedFingerprint = mutableMapOf<String, Int>()
-        val omittedTransientAps = mutableListOf<String>()
 
         for ((bssid, rawReadings) in sampleBuffer) {
             val ssid = bssidToSsidMap[bssid] ?: "Unknown"
+            // Compute mean RSSI directly from all collected raw readings
+            val avg = rawReadings.average().roundToInt()
 
-            // In Locate Mode: Omit AP if it did NOT appear at least K times (< outlierFilterK)
-            if (!isSurveying && rawReadings.size < outlierFilterK) {
-                omittedTransientAps.add("$ssid ($bssid) [seen ${rawReadings.size}/$activeTargetSamples times]")
-                continue
-            }
-
-            // Exclude outliers: pick k-closest points to median
-            val filteredReadings = filterKClosestPoints(rawReadings, outlierFilterK)
-            val cleanAvg = filteredReadings.average().roundToInt()
-
-            averagedFingerprint[bssid] = cleanAvg
-            processedMeasurements.add(ApMeasurement(bssid, ssid, rawReadings, filteredReadings, cleanAvg))
+            averagedFingerprint[bssid] = avg
+            processedMeasurements.add(ApMeasurement(bssid, ssid, rawReadings, avg))
         }
 
         if (isSurveying) {
             val spot = editSpotName.text.toString().trim()
-            log("\n--- Averaged Fingerprint for $spot (Outlier Filtered: $outlierFilterK of $activeTargetSamples) ---\n")
+            log("\n--- Survey Results for $spot ($activeTargetSamples iterations) ---\n")
             for (m in processedMeasurements) {
                 log("${m.ssid} (${m.bssid})\n")
-                log("  Raw (${m.rawReadings.size}): ${m.rawReadings}\n")
-                log("  Filtered ($outlierFilterK-closest): ${m.filteredReadings} -> Clean Avg: ${m.avgRssi} dBm\n")
+                log("  Readings (${m.rawReadings.size}): ${m.rawReadings}\n")
+                log("  Avg: ${m.avgRssi} dBm\n")
             }
 
             // Save to memory
             surveyDatabase.add(Fingerprint(spot, averagedFingerprint))
 
-            // Save to CSV file with raw, filtered, and averaged values
+            // Save to CSV file with all raw samples
             saveFingerprintToCsv(spot, processedMeasurements)
 
-            log("\n💾 Saved '$spot' with ${averagedFingerprint.size} averaged APs to database & CSV.\n")
+            log("\n💾 Saved '$spot' with ${averagedFingerprint.size} APs to database & CSV.\n")
             log("Total spots in memory: ${surveyDatabase.size}\n")
         } else {
-            // Locate Mode: Log valid vs omitted transient APs, then run k-NN on available dimensions
-            log("\n--- Live Scan (Outlier Filtered: $outlierFilterK of $activeTargetSamples) ---\n")
-            if (omittedTransientAps.isNotEmpty()) {
-                log("⚠️ Omitted ${omittedTransientAps.size} transient APs (seen < $outlierFilterK times):\n")
-                for (omitted in omittedTransientAps) {
-                    log("   🚫 $omitted\n")
-                }
-            }
-
+            // Locate Mode: Log live readings and run k-NN on available dimensions
+            log("\n--- Live Scan ($activeTargetSamples iterations) ---\n")
             for (m in processedMeasurements) {
                 log("${m.ssid} (${m.bssid})\n")
-                log("  Raw (${m.rawReadings.size}): ${m.rawReadings}\n")
-                log("  Filtered ($outlierFilterK-closest): ${m.filteredReadings} -> Clean Avg: ${m.avgRssi} dBm\n")
+                log("  Readings (${m.rawReadings.size}): ${m.rawReadings} -> Avg: ${m.avgRssi} dBm\n")
             }
 
             locateSpotUsingKnn(averagedFingerprint, k = knnK)
@@ -287,7 +245,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Save fingerprint entry into wifi_fingerprints.csv including raw & filtered samples
+    // Save fingerprint entry into wifi_fingerprints.csv including ALL raw measurements
     private fun saveFingerprintToCsv(spot: String, measurements: List<ApMeasurement>) {
         try {
             val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
@@ -296,14 +254,13 @@ class MainActivity : AppCompatActivity() {
             val timestamp = System.currentTimeMillis()
 
             if (isNewFile) {
-                writer.append("timestamp,spot_label,bssid,ssid,raw_samples,filtered_samples,avg_rssi\n")
+                writer.append("timestamp,spot_label,bssid,ssid,sample_count,samples,avg_rssi\n")
             }
 
             for (m in measurements) {
                 val cleanSsid = m.ssid.replace(",", " ")
                 val rawStr = "\"[" + m.rawReadings.joinToString(";") + "]\""
-                val filteredStr = "\"[" + m.filteredReadings.joinToString(";") + "]\""
-                writer.append("$timestamp,$spot,${m.bssid},$cleanSsid,$rawStr,$filteredStr,${m.avgRssi}\n")
+                writer.append("$timestamp,$spot,${m.bssid},$cleanSsid,${m.rawReadings.size},$rawStr,${m.avgRssi}\n")
             }
 
             writer.flush()
