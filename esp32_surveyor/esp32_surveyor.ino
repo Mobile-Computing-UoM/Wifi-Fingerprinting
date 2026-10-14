@@ -17,6 +17,7 @@
 
 // Configuration
 #define BUTTON_PIN 0          // Built-in BOOT button on ESP32 NodeMCU
+#define LED_PIN 2             // Built-in Blue LED
 const int TARGET_SAMPLES = 385;       // Iterations per survey spot
 const int CHECKPOINT_INTERVAL = 25;    // Checkpoint interval: flush to Flash every 25 scans
 const int MAX_APS = 35;                // Max APs buffered per checkpoint
