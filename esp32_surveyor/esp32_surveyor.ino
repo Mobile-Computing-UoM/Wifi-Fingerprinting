@@ -25,7 +25,7 @@ const int MAX_APS = 35;                // Max APs buffered per checkpoint
 struct ApSurveyBuffer {
   String bssid;
   String ssid;
-  int8_t rssiSamples[CHECKPOINT_INTERVAL]; // Only 25 bytes per AP! Micro-memory footprint
+  int rssiSamples[CHECKPOINT_INTERVAL]; // Standard int (checkpointing keeps memory tiny!)
   int count;
 };
 
@@ -172,7 +172,7 @@ void runSurvey() {
       }
 
       if (idx != -1 && dynamicAps[idx].count < CHECKPOINT_INTERVAL) {
-        dynamicAps[idx].rssiSamples[dynamicAps[idx].count++] = (int8_t)rssi;
+        dynamicAps[idx].rssiSamples[dynamicAps[idx].count++] = rssi;
       }
     }
 
@@ -253,7 +253,7 @@ void dumpDataToSerial() {
       // Scan measurements file for (sId, aId)
       File mf = LittleFS.open("/measurements.csv", FILE_READ);
       const int MAX_EXPORT_SAMPLES = 1000;
-      int8_t readings[MAX_EXPORT_SAMPLES];
+      int readings[MAX_EXPORT_SAMPLES];
       int readCount = 0;
 
       while (mf.available() && readCount < MAX_EXPORT_SAMPLES) {
