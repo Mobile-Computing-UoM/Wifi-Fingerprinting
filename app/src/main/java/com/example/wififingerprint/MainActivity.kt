@@ -29,6 +29,9 @@ import java.io.FileWriter
 import kotlin.math.pow
 import kotlin.math.sqrt
 
+import android.view.WindowManager
+import android.os.PowerManager
+import android.view.View
 import android.widget.Toast
 
 data class Fingerprint(
@@ -52,6 +55,42 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wifiManager: WifiManager
     private val surveyDatabase = mutableListOf<Fingerprint>()
     private val CSV_FILE_NAME = "wifi_fingerprints.csv"
+
+    // Dynamic WakeLock to keep screen on ONLY while surveying
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private fun acquireScreenWakeLock() {
+        try {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            findViewById<View>(android.R.id.content)?.keepScreenOn = true
+
+            if (wakeLock == null) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                wakeLock = powerManager?.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "WifiFingerprint:SurveyWakeLock"
+                )
+            }
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(60 * 60 * 1000L) // 60 minutes safety timeout
+            }
+        } catch (e: Exception) {
+            // Ignore if restricted
+        }
+    }
+
+    private fun releaseScreenWakeLock() {
+        try {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            findViewById<View>(android.R.id.content)?.keepScreenOn = false
+
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+    }
 
     // Configurable parameters (persisted in SharedPreferences)
     private var surveySampleCount = 20    // Scans per survey spot (can be set large, e.g. 50, 100)
@@ -190,6 +229,7 @@ class MainActivity : AppCompatActivity() {
         btnLocate.isEnabled = true
         btnClearData.isEnabled = true
         btnSettings.isEnabled = true
+        releaseScreenWakeLock()
     }
 
     // k-Nearest Neighbors (k-NN) matching ONLY available dimensions
@@ -343,6 +383,7 @@ class MainActivity : AppCompatActivity() {
                 btnLocate.isEnabled = true
                 btnClearData.isEnabled = true
                 btnSettings.isEnabled = true
+                releaseScreenWakeLock()
                 return
             }
 
@@ -406,6 +447,7 @@ class MainActivity : AppCompatActivity() {
                         btnLocate.isEnabled = true
                         btnClearData.isEnabled = true
                         btnSettings.isEnabled = true
+                        releaseScreenWakeLock()
                     }
                 }
             }, 2000)
@@ -438,7 +480,6 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_main)
 
         editSpotName = findViewById(R.id.editSpotName)
@@ -493,6 +534,7 @@ class MainActivity : AppCompatActivity() {
             btnSettings.isEnabled = false
 
             isSurveying = true
+            acquireScreenWakeLock()
             sampleBuffer.clear()
             bssidToSsidMap.clear()
             currentSampleCount = 0
@@ -566,6 +608,7 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onDestroy() {
         super.onDestroy()
+        releaseScreenWakeLock()
         scanHandler.removeCallbacksAndMessages(null)
         unregisterReceiver(wifiScanReceiver)
     }
