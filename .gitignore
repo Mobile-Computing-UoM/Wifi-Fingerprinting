@@ -15,3 +15,6 @@
 local.properties
 .kotlin/
 .idea/
+
+.internal/
+venv/
