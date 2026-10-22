@@ -21,6 +21,8 @@ import android.net.wifi.ScanResult
 import android.content.IntentFilter
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import android.location.LocationManager
+import androidx.core.location.LocationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -431,6 +433,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private fun triggerWifiScan() {
+        val locManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        val isLocationOn = locManager != null && LocationManagerCompat.isLocationEnabled(locManager)
+        if (!isLocationOn) {
+            log("❌ Device Location (GPS) is OFF! Turn ON Location in phone quick settings.\n")
+            isScanningActive = false
+            btnSurvey.isEnabled = true
+            btnLocate.isEnabled = true
+            btnClearData.isEnabled = true
+            btnSettings.isEnabled = true
+            releaseScreenWakeLock()
+            return
+        }
+
+        if (!wifiManager.isWifiEnabled) {
+            log("❌ Wi-Fi is OFF! Please turn ON Wi-Fi on your device.\n")
+            isScanningActive = false
+            btnSurvey.isEnabled = true
+            btnLocate.isEnabled = true
+            btnClearData.isEnabled = true
+            btnSettings.isEnabled = true
+            releaseScreenWakeLock()
+            return
+        }
+
         if (!isSurveying) {
             log("Starting Wi-Fi scan...\n")
         }
