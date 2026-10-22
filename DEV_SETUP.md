@@ -8,7 +8,7 @@ This guide is designed to help any peer developer set up, build, test, and run t
 
 The system consists of two tightly integrated components:
 
-```
+```diagram
 ┌────────────────────────────────────────────────────────┐
 │               Android Application (Kotlin)             │
 │  - Configurable Multi-Scan Surveying (N iterations)   │
@@ -34,6 +34,7 @@ The system consists of two tightly integrated components:
 ## 💻 2. Prerequisites & Tools
 
 ### A. Development Machine (PC)
+
 - **Operating System**: Linux (Ubuntu/Debian tested), macOS, or Windows 10/11.
 - **Java Development Kit (JDK)**: OpenJDK 17 or 21.
 - **Android Studio**: Iguana / Jellyfish / Ladybug (or Android SDK Command-line Tools).
@@ -43,6 +44,7 @@ The system consists of two tightly integrated components:
 - **Python**: Version 3.9+ with `pandas`, `numpy`, and `matplotlib` (or [`uv`](https://github.com/astral-sh/uv) package runner).
 
 ### B. Android Test Device
+
 - Physical Android phone running **Android 8.0 (API 26) through Android 14 (API 34+)**.
   *(Emulators cannot scan physical Wi-Fi access points; a real device is strictly required).*
 
@@ -53,7 +55,9 @@ The system consists of two tightly integrated components:
 Before testing or surveying, you **MUST** configure these two device settings, otherwise Android OS will block Wi-Fi scans:
 
 ### Step 1: Disable Wi-Fi Scan Throttling
+
 Android OS limits apps to only 4 scans every 2 minutes if throttling is enabled.
+
 1. Open **Settings** → **About Phone**.
 2. Tap **Build Number** 7 times rapidly until you see *"You are now a developer!"*.
 3. Go back to **Settings** → **Developer Options** (under System or Additional Settings).
@@ -61,7 +65,9 @@ Android OS limits apps to only 4 scans every 2 minutes if throttling is enabled.
 5. Locate **Wi-Fi scan throttling** and toggle it **OFF**.
 
 ### Step 2: Enable Location Services (GPS) & App Permissions
+
 Android's security architecture treats Wi-Fi BSSID/RSSI scanning as location data:
+
 1. Turn **ON** device **Location (GPS)**.
 2. When launching the app, grant:
    - **Location Permission**: "While using the app" / "Precise".
@@ -72,12 +78,14 @@ Android's security architecture treats Wi-Fi BSSID/RSSI scanning as location dat
 ## 🛠️ 4. Building & Running the Android App
 
 ### Option A: Using Android Studio
+
 1. Open Android Studio → **Open Project** → Select the root repository directory (`/media/vithurshan/vithu/mc`).
 2. Allow Gradle sync to complete automatically.
 3. Connect your Android phone via USB and enable **USB Debugging**.
 4. Select your connected device from the device dropdown and click **Run 'app'** (`Shift + F10`).
 
 ### Option B: Using the Command Line
+
 ```bash
 # 1. Navigate to the project root
 cd /media/vithurshan/vithu/mc
@@ -97,7 +105,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ## 🎮 5. App Usage Guide
 
 ### ⚙️ Configuring Parameters
+
 Tap the **⚙️ Settings** button in the top right:
+
 - **Survey Sample Count ($N$)**: Total Wi-Fi scans collected per spot (e.g. `50`).
 - **Locate Sample Count**: Number of live scans averaged when determining position (e.g. `10`).
 - **k-NN $k$**: Number of nearest neighbors for majority voting (e.g. `1` or `3`).
@@ -106,6 +116,7 @@ Tap the **⚙️ Settings** button in the top right:
 ---
 
 ### 📍 Step 1: Surveying Fingerprints (Offline Phase)
+
 1. Stand at a chosen physical location (e.g., `bedroom`).
 2. Type the location label in the **Enter Spot Label** input box (e.g. `bedroom`, `hall`, `kitchen`).
 3. Tap **1. Record Survey Sample**.
@@ -122,6 +133,7 @@ Tap the **⚙️ Settings** button in the top right:
 ---
 
 ### 🔎 Step 2: Real-time Location Matching (Online Phase)
+
 1. Walk to any spot (either one of your surveyed spots or an in-between spot).
 2. Tap **2. Where Am I? (k-NN Match)**.
 3. The app collects the configured locate sample count (e.g., 10 iterations) and averages visible APs.
@@ -134,6 +146,7 @@ Tap the **⚙️ Settings** button in the top right:
 ---
 
 ### 🗑️ Resetting / Clearing Data
+
 - Tap **Clear All Saved Data (DB)**.
 - Confirms deletion via a safety dialog, wipes in-memory fingerprints, and deletes the local CSV file.
 
@@ -144,14 +157,18 @@ Tap the **⚙️ Settings** button in the top right:
 All raw, unfiltered measurement iterations are preserved in the mobile device's app storage.
 
 ### Step 1: Pull the CSV from the Phone
+
 Connect your phone with USB debugging enabled and run:
+
 ```bash
 # Pull the CSV into your current working directory
 adb pull /sdcard/Android/data/com.example.wififingerprint/files/wifi_fingerprints.csv .
 ```
 
 ### Step 2: Run the Analysis Script
+
 Ensure Python 3.9+ is installed:
+
 ```bash
 # Option 1: Using 'uv' (recommended, no virtualenv activation needed)
 uv run --with pandas --with numpy --with matplotlib python analyze_fingerprints.py
@@ -161,7 +178,8 @@ pip install pandas numpy matplotlib
 python3 analyze_fingerprints.py
 ```
 
-### What the Script Outputs:
+### What the Script Outputs
+
 1. **Filters Data ($N > 30$)**: Automatically drops any short preliminary trial records ($\le 30$ samples) and only analyzes dense statistical survey runs.
 2. **Prints Statistical Table**:
    - Sample Count ($N$)
@@ -180,7 +198,7 @@ python3 analyze_fingerprints.py
 
 ## 📂 7. Project Directory Structure
 
-```
+```file
 ├── app/
 │   ├── src/main/
 │   │   ├── AndroidManifest.xml          # Permissions (Location, Nearby Wi-Fi)
