@@ -1,41 +1,45 @@
 package com.example.wififingerprint
 
-import android.os.Bundle
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
-import android.net.wifi.WifiManager
-import android.content.Context
 import android.Manifest
-import android.widget.ScrollView
-import android.widget.ProgressBar
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.net.wifi.WifiManager
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import kotlin.math.roundToInt
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.core.app.ActivityCompat
-import android.content.BroadcastReceiver
-import android.content.Intent
-import android.net.wifi.ScanResult
-import android.content.IntentFilter
-import androidx.activity.enableEdgeToEdge
-import androidx.appcompat.app.AppCompatActivity
-import android.location.LocationManager
-import androidx.core.location.LocationManagerCompat
-import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import java.io.File
-import java.io.FileWriter
-import kotlin.math.pow
-import kotlin.math.sqrt
-
-import android.view.WindowManager
 import android.os.PowerManager
 import android.view.View
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.EditText
+import android.widget.ProgressBar
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.example.wififingerprint.strategy.FuzzyMatrixStrategy
+import com.example.wififingerprint.strategy.KnnStrategy
+import com.example.wififingerprint.strategy.LiveQueryScan
+import com.example.wififingerprint.strategy.RawApMeasurement
+import com.example.wififingerprint.strategy.RawSurveySpot
+import com.example.wififingerprint.strategy.StrategyMode
+import java.io.File
+import java.io.FileWriter
+import kotlin.math.roundToInt
 
+// Legacy data class kept for backwards compatibility if needed
 data class Fingerprint(
     val spotLabel: String,
     val readings: Map<String, Int>
@@ -55,8 +59,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvProgressText: TextView
 
     private lateinit var wifiManager: WifiManager
-    private val surveyDatabase = mutableListOf<Fingerprint>()
+    private val surveyDatabase = mutableListOf<RawSurveySpot>()
     private val CSV_FILE_NAME = "wifi_fingerprints.csv"
+
+    // Strategy Pattern instances
+    private var selectedStrategyMode: StrategyMode = StrategyMode.BOTH
+    private val knnStrategy = KnnStrategy(1)
+    private val fuzzyMatrixStrategy = FuzzyMatrixStrategy()
 
     // Dynamic WakeLock to keep screen on ONLY while surveying
     private var wakeLock: PowerManager.WakeLock? = null
@@ -69,15 +78,17 @@ class MainActivity : AppCompatActivity() {
             if (wakeLock == null) {
                 val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
                 wakeLock = powerManager?.newWakeLock(
-                    PowerManager.PARTIAL_WAKE_LOCK,
+                    PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ON_AFTER_RELEASE,
                     "WifiFingerprint:SurveyWakeLock"
-                )
+                )?.apply {
+                    setReferenceCounted(false)
+                }
             }
             if (wakeLock?.isHeld == false) {
-                wakeLock?.acquire(60 * 60 * 1000L) // 60 minutes safety timeout
+                wakeLock?.acquire(60 * 60 * 1000L) // 1-hour safety timeout
             }
         } catch (e: Exception) {
-            // Ignore if restricted
+            // Ignore if device power policy restricts wake lock
         }
     }
 
@@ -95,7 +106,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Configurable parameters (persisted in SharedPreferences)
-    private var surveySampleCount = 20    // Scans per survey spot (can be set large, e.g. 50, 100)
+    private var surveySampleCount = 20    // Scans per survey spot
     private var locateSampleCount = 10    // Scans for locate
     private var knnK = 1                 // k for k-NN matching
     private var activeTargetSamples = 20 // Current active target
@@ -108,31 +119,42 @@ class MainActivity : AppCompatActivity() {
     private val bssidToSsidMap = mutableMapOf<String, String>()
     private val scanHandler = Handler(Looper.getMainLooper())
 
+    private fun rebuildStrategyModels() {
+        knnStrategy.k = knnK
+        knnStrategy.buildModel(surveyDatabase)
+        fuzzyMatrixStrategy.buildModel(surveyDatabase)
+    }
+
     private fun loadSettings() {
         val prefs = getSharedPreferences("FingerprintSettings", Context.MODE_PRIVATE)
         surveySampleCount = prefs.getInt("survey_count", 20)
         locateSampleCount = prefs.getInt("locate_count", 10)
         knnK = prefs.getInt("knn_k", 1)
+        selectedStrategyMode = StrategyMode.fromKey(prefs.getString("strategy_mode", StrategyMode.BOTH.key))
+        knnStrategy.k = knnK
         updateSettingsSummary()
     }
 
-    private fun saveSettings(survey: Int, locate: Int, knn: Int) {
+    private fun saveSettings(survey: Int, locate: Int, knn: Int, mode: StrategyMode) {
         surveySampleCount = survey
         locateSampleCount = locate
         knnK = knn
+        selectedStrategyMode = mode
+        knnStrategy.k = knnK
 
         val prefs = getSharedPreferences("FingerprintSettings", Context.MODE_PRIVATE)
         prefs.edit().apply {
             putInt("survey_count", survey)
             putInt("locate_count", locate)
             putInt("knn_k", knn)
+            putString("strategy_mode", mode.key)
             apply()
         }
         updateSettingsSummary()
         if (!isScanningActive) {
             updateProgressDisplay(0, surveySampleCount, "Survey Progress")
         }
-        log("\n⚙️ Settings saved: Survey=$survey | Locate=$locate | k-NN=$knn\n")
+        log("\n⚙️ Settings saved: Survey=$survey | Locate=$locate | k-NN=$knn | Strategy=${mode.title}\n")
     }
 
     private fun updateProgressDisplay(current: Int, total: Int, label: String? = null) {
@@ -145,7 +167,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateSettingsSummary() {
-        tvSettingsSummary.text = "Params: Survey=$surveySampleCount | Locate=$locateSampleCount | k-NN=$knnK"
+        val stratShort = when (selectedStrategyMode) {
+            StrategyMode.KNN -> "k-NN"
+            StrategyMode.FUZZY_MATRIX -> "Fuzzy Matrix"
+            StrategyMode.BOTH -> "Both (Side-by-Side)"
+        }
+        tvSettingsSummary.text = "Params: Survey=$surveySampleCount | Locate=$locateSampleCount | k-NN=$knnK | Mode: $stratShort"
+
+        // Dynamically update locate button label
+        btnLocate.text = when (selectedStrategyMode) {
+            StrategyMode.KNN -> "2. Where Am I? (k-NN)"
+            StrategyMode.FUZZY_MATRIX -> "2. Where Am I? (Fuzzy Matrix)"
+            StrategyMode.BOTH -> "2. Where Am I? (Compare Both)"
+        }
     }
 
     private fun showSettingsDialog() {
@@ -154,22 +188,38 @@ class MainActivity : AppCompatActivity() {
         val editLocate = dialogView.findViewById<EditText>(R.id.editLocateCount)
         val editKnn = dialogView.findViewById<EditText>(R.id.editKnnK)
 
+        val rbBoth = dialogView.findViewById<RadioButton>(R.id.rbStrategyBoth)
+        val rbKnn = dialogView.findViewById<RadioButton>(R.id.rbStrategyKnn)
+        val rbFuzzy = dialogView.findViewById<RadioButton>(R.id.rbStrategyFuzzy)
+
         editSurvey.setText(surveySampleCount.toString())
         editLocate.setText(locateSampleCount.toString())
         editKnn.setText(knnK.toString())
 
+        when (selectedStrategyMode) {
+            StrategyMode.BOTH -> rbBoth.isChecked = true
+            StrategyMode.KNN -> rbKnn.isChecked = true
+            StrategyMode.FUZZY_MATRIX -> rbFuzzy.isChecked = true
+        }
+
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Configure Parameters")
+            .setTitle("Configure Parameters & Strategy")
             .setView(dialogView)
             .setPositiveButton("Save") { _, _ ->
                 val sCount = editSurvey.text.toString().toIntOrNull() ?: surveySampleCount
                 val lCount = editLocate.text.toString().toIntOrNull() ?: locateSampleCount
                 val kVal = editKnn.text.toString().toIntOrNull() ?: knnK
 
+                val chosenMode = when {
+                    rbKnn.isChecked -> StrategyMode.KNN
+                    rbFuzzy.isChecked -> StrategyMode.FUZZY_MATRIX
+                    else -> StrategyMode.BOTH
+                }
+
                 if (sCount <= 0 || lCount <= 0 || kVal <= 0) {
                     Toast.makeText(this, "Parameters must be positive integers!", Toast.LENGTH_SHORT).show()
                 } else {
-                    saveSettings(sCount, lCount, kVal)
+                    saveSettings(sCount, lCount, kVal, chosenMode)
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -190,7 +240,6 @@ class MainActivity : AppCompatActivity() {
 
         for ((bssid, rawReadings) in sampleBuffer) {
             val ssid = bssidToSsidMap[bssid] ?: "Unknown"
-            // Compute mean RSSI directly from all collected raw readings
             val avg = rawReadings.average().roundToInt()
 
             averagedFingerprint[bssid] = avg
@@ -205,8 +254,15 @@ class MainActivity : AppCompatActivity() {
                 log("• ${m.ssid} (${m.bssid}): Avg ${m.avgRssi} dBm (${m.rawReadings.size} samples)\n")
             }
 
-            // Save to memory
-            surveyDatabase.add(Fingerprint(spot, averagedFingerprint))
+            // Convert to RawSurveySpot representation and save to database
+            val rawMeasurements = processedMeasurements.map {
+                RawApMeasurement(it.bssid, it.ssid, it.rawReadings, it.avgRssi)
+            }
+            val spotRecord = RawSurveySpot(spot, rawMeasurements, activeTargetSamples)
+            surveyDatabase.add(spotRecord)
+
+            // Rebuild Strategy Models dynamically with the newly added spot
+            rebuildStrategyModels()
 
             // Save to CSV file with all raw samples
             saveFingerprintToCsv(spot, processedMeasurements)
@@ -215,14 +271,15 @@ class MainActivity : AppCompatActivity() {
             log("Total spots in memory: ${surveyDatabase.size}\n")
         } else {
             updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Locate Completed")
-            // Locate Mode: Log live readings and run k-NN on available dimensions
             log("\n--- Live Scan ($activeTargetSamples iterations) ---\n")
             for (m in processedMeasurements) {
                 log("${m.ssid} (${m.bssid})\n")
                 log("  Readings (${m.rawReadings.size}): ${m.rawReadings} -> Avg: ${m.avgRssi} dBm\n")
             }
 
-            locateSpotUsingKnn(averagedFingerprint, k = knnK)
+            // Execute localization using the Strategy Pattern
+            val liveQuery = LiveQueryScan(averagedFingerprint, bssidToSsidMap)
+            executeLocalization(liveQuery)
         }
 
         // FINISHED: Unlock scanning state and re-enable buttons
@@ -234,72 +291,61 @@ class MainActivity : AppCompatActivity() {
         releaseScreenWakeLock()
     }
 
-    // k-Nearest Neighbors (k-NN) matching ONLY available dimensions
-    private fun locateSpotUsingKnn(liveScan: Map<String, Int>, k: Int = 1) {
+    /**
+     * Executes localization using the configured Strategy Pattern mode.
+     * When StrategyMode.BOTH is selected, the identical liveQuery is evaluated
+     * by both algorithms simultaneously for direct side-by-side comparison.
+     */
+    private fun executeLocalization(query: LiveQueryScan) {
         if (surveyDatabase.isEmpty()) {
             log("\n⚠️ No survey spots in database to compare against!\n")
             return
         }
 
-        log("\n========================================\n")
-        log("🔍 Running $k-NN Localization (Available Dimensions Only)...\n")
-        log("========================================\n")
+        rebuildStrategyModels()
 
-        // Stores Triple(SpotLabel, RMSE_Distance, MatchedDimensionsCount)
-        val distances = mutableListOf<Triple<String, Double, Int>>()
+        when (selectedStrategyMode) {
+            StrategyMode.KNN -> {
+                val result = knnStrategy.infer(query)
+                log(result.logOutput)
+            }
 
-        for (fp in surveyDatabase) {
-            // Match ONLY the dimensions that are available in both live scan and this surveyed spot
-            val commonBssids = liveScan.keys.intersect(fp.readings.keys)
+            StrategyMode.FUZZY_MATRIX -> {
+                val result = fuzzyMatrixStrategy.infer(query)
+                log(result.logOutput)
+            }
 
-            if (commonBssids.isEmpty()) {
-                // No common APs found: cannot match this spot
-                distances.add(Triple(fp.spotLabel, Double.MAX_VALUE, 0))
-            } else {
-                var sumSquare = 0.0
-                for (bssid in commonBssids) {
-                    val rSurvey = fp.readings[bssid]!!
-                    val rLive = liveScan[bssid]!!
-                    sumSquare += (rSurvey - rLive).toDouble().pow(2)
+            StrategyMode.BOTH -> {
+                // Run both strategies on the EXACT SAME live query data
+                val resKnn = knnStrategy.infer(query)
+                val resFuzzy = fuzzyMatrixStrategy.infer(query)
+
+                log(resKnn.logOutput)
+                log(resFuzzy.logOutput)
+
+                // High-visibility side-by-side comparison summary
+                val knnWinner = resKnn.predictedSpot ?: "None"
+                val fuzzyWinner = resFuzzy.predictedSpot ?: "None"
+                val agreement = if (knnWinner == fuzzyWinner) {
+                    "🎯 COMPLETE AGREEMENT: Both algorithms predicted '$knnWinner'"
+                } else {
+                    "⚠️ DIVERGENCE: k-NN predicted '$knnWinner' vs. Fuzzy Matrix predicted '$fuzzyWinner'"
                 }
 
-                // Root Mean Square Error (RMSE) across only available matching AP dimensions
-                val rmse = sqrt(sumSquare / commonBssids.size)
-                distances.add(Triple(fp.spotLabel, rmse, commonBssids.size))
+                val summary = StringBuilder()
+                summary.append("\n========================================\n")
+                summary.append("⚖️ DUAL STRATEGY COMPARISON (Same Scan Data)\n")
+                summary.append("========================================\n")
+                val knnGap = if (resKnn.confidenceMargin != null) " (Gap: ${"%.2f".format(resKnn.confidenceMargin)} dBm)" else ""
+                val fuzzyMargin = if (resFuzzy.confidenceMargin != null) " (Winning Margin: +${"%.4f".format(resFuzzy.confidenceMargin)})" else ""
+
+                summary.append("• Strategy 1 (k-NN):         $knnWinner$knnGap\n")
+                summary.append("• Strategy 2 (Fuzzy Matrix): $fuzzyWinner$fuzzyMargin\n")
+                summary.append("\n$agreement\n")
+                summary.append("========================================\n\n")
+
+                log(summary.toString())
             }
-        }
-
-        // Sort by distance ascending (closest match first). If distances match, tie-break by higher matched AP count.
-        distances.sortWith(compareBy({ it.second }, { -it.third }))
-
-        log("Distance Rankings (RMSE over available dimensions):\n")
-        for ((index, item) in distances.withIndex()) {
-            val marker = if (index < k) "👉 [TOP-$k]" else "   "
-            if (item.second == Double.MAX_VALUE) {
-                log("$marker ${item.first} -> No common APs matched!\n")
-            } else {
-                log("$marker ${item.first} -> Avg Diff: ${"%.2f".format(item.second)} dBm (matched ${item.third} APs)\n")
-            }
-        }
-
-        val validMatches = distances.filter { it.second != Double.MAX_VALUE }
-        if (validMatches.isNotEmpty()) {
-            val topK = validMatches.take(k)
-            if (k > 1) {
-                log("\nTop-$k Neighbors for Voting:\n")
-                for ((idx, cand) in topK.withIndex()) {
-                    log("   ${idx + 1}. ${cand.first} (RMSE: ${"%.2f".format(cand.second)} dBm, ${cand.third} APs)\n")
-                }
-            }
-
-            // Majority voting among top k candidates
-            val votes = topK.groupingBy { it.first }.eachCount()
-            val winner = votes.maxByOrNull { it.value }?.key ?: topK.first().first
-            val winnerCand = topK.first { it.first == winner }
-
-            log("\n📍 PREDICTED LOCATION ($k-NN Mode): $winner (Avg Diff: ${"%.2f".format(winnerCand.second)} dBm, ${winnerCand.third} APs matched)\n")
-        } else {
-            log("\n⚠️ Could not determine location: no common APs matched with any saved spot.\n")
         }
     }
 
@@ -328,47 +374,80 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Load previously saved survey data from wifi_fingerprints.csv on startup (supports both old 5-column and new 7-column formats)
+    // Load previously saved survey data from wifi_fingerprints.csv on startup
+    // Supports both old 5-column and new 7-column formats, reconstructing full raw readings
     private fun loadFingerprintsFromCsv() {
         try {
             val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
             if (!file.exists()) return
 
-            val loadedSpots = mutableMapOf<String, MutableMap<String, Int>>()
+            // Map: SpotLabel -> (BSSID -> RawApMeasurement)
+            val spotMeasurements = mutableMapOf<String, MutableMap<String, RawApMeasurement>>()
+            val spotMaxScans = mutableMapOf<String, Int>()
 
             file.forEachLine { line ->
                 if (!line.startsWith("timestamp") && line.isNotBlank()) {
-                    val parts = line.split(",")
-                    if (parts.size >= 5) {
-                        val spot = parts[1].trim()
-                        val bssid = parts[2].trim()
-                        // Use parts.last() so it works for both 5-column and 7-column CSVs
-                        val rssi = parts.last().trim().toIntOrNull() ?: -100
-                        loadedSpots.getOrPut(spot) { mutableMapOf() }[bssid] = rssi
+                    if (line.contains("\"[")) {
+                        // 7-column format with raw sample array
+                        val parts = line.split("\"")
+                        val meta = parts[0].split(",")
+                        val spot = meta.getOrNull(1)?.trim() ?: ""
+                        val bssid = meta.getOrNull(2)?.trim() ?: ""
+                        val ssid = meta.getOrNull(3)?.trim() ?: "Unknown"
+                        val count = meta.getOrNull(4)?.trim()?.toIntOrNull() ?: 1
+
+                        val rawList = if (parts.size > 1) {
+                            parts[1].trim(' ', '[', ']')
+                                .split(";")
+                                .mapNotNull { it.toIntOrNull() }
+                        } else emptyList()
+
+                        val avg = parts.getOrNull(2)?.trim(',', ' ')?.toIntOrNull()
+                            ?: (if (rawList.isNotEmpty()) rawList.average().roundToInt() else -100)
+
+                        if (spot.isNotEmpty() && bssid.isNotEmpty()) {
+                            val currentMax = spotMaxScans[spot] ?: 0
+                            spotMaxScans[spot] = maxOf(currentMax, count, rawList.size)
+                            spotMeasurements.getOrPut(spot) { mutableMapOf() }[bssid] =
+                                RawApMeasurement(bssid, ssid, rawList.ifEmpty { listOf(avg) }, avg)
+                        }
+                    } else {
+                        // Legacy 5-column format: timestamp,spot_label,bssid,ssid,avg_rssi
+                        val parts = line.split(",")
+                        if (parts.size >= 5) {
+                            val spot = parts[1].trim()
+                            val bssid = parts[2].trim()
+                            val ssid = parts[3].trim()
+                            val rssi = parts.last().trim().toIntOrNull() ?: -100
+
+                            val currentMax = spotMaxScans[spot] ?: 0
+                            spotMaxScans[spot] = maxOf(currentMax, 1)
+                            spotMeasurements.getOrPut(spot) { mutableMapOf() }[bssid] =
+                                RawApMeasurement(bssid, ssid, listOf(rssi), rssi)
+                        }
                     }
                 }
             }
 
             surveyDatabase.clear()
-            for ((spot, map) in loadedSpots) {
-                surveyDatabase.add(Fingerprint(spot, map))
+            for ((spot, bssidMap) in spotMeasurements) {
+                val totalScans = spotMaxScans[spot] ?: 1
+                surveyDatabase.add(RawSurveySpot(spot, bssidMap.values.toList(), totalScans))
             }
 
+            rebuildStrategyModels()
             log("📂 Loaded ${surveyDatabase.size} saved spot(s) from ${file.name}\n")
         } catch (e: Exception) {
             log("❌ Error reading CSV: ${e.message}\n")
         }
     }
+
     private val wifiScanReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            // CRITICAL: Ignore automatic background scans triggered by Android OS!
             if (!isScanningActive) return
 
-            // CRITICAL: Reject stale/cached scan results. Verify Android actually completed a fresh scan!
             val updated = intent?.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false) ?: false
             if (!updated) {
-                // Android did not perform a new scan (throttled/cached results).
-                // Do NOT increment sample count or record duplicates! Schedule a retry.
                 scanHandler.postDelayed({
                     if (isScanningActive) triggerWifiScan()
                 }, 1500)
@@ -398,40 +477,52 @@ class MainActivity : AppCompatActivity() {
             }
 
             currentSampleCount++
+            val spot = if (isSurveying) editSpotName.text.toString().trim() else "Locate Position"
+            updateProgressDisplay(currentSampleCount, activeTargetSamples, if (isSurveying) "Surveying '$spot'..." else "Locating...")
 
-            // Update horizontal progress bar (currentiteration/totaliteration) percentile completed
-            val label = if (isSurveying) "Surveying '${editSpotName.text.toString().trim()}'..." else "Locating..."
-            updateProgressDisplay(currentSampleCount, activeTargetSamples, label)
-
-            // When surveying, suppress intermediate scan logging to avoid cluttering the UI
-            if (!isSurveying) {
-                log("Sample $currentSampleCount of $activeTargetSamples collected (${scanResults.size} APs visible).\n")
-            }
-
-            // Accumulate RSSI for each BSSID seen in this scan
-            for (ap in scanResults) {
-                val bssid = ap.BSSID
-                val rssi = ap.level
-                val ssid = if (ap.SSID.isNullOrEmpty()) "<Hidden>" else ap.SSID
+            for (result in scanResults) {
+                val bssid = result.BSSID ?: continue
+                val ssid = if (result.SSID.isNullOrEmpty()) "Hidden" else result.SSID
+                val rssi = result.level
 
                 bssidToSsidMap[bssid] = ssid
-
-                // If BSSID not in buffer yet, create empty list, then add rssi
                 sampleBuffer.getOrPut(bssid) { mutableListOf() }.add(rssi)
             }
 
-            // Check if we still need more samples
             if (currentSampleCount < activeTargetSamples) {
-                // Wait 1.2 seconds before the next scan to let the Wi-Fi radio refresh
                 scanHandler.postDelayed({
-                    triggerWifiScan()
-                }, 1200)
+                    if (isScanningActive) triggerWifiScan()
+                }, 1000)
             } else {
-                // ALL SAMPLES COLLECTED -> COMPUTE AVERAGES!
                 processAndSaveAveragedFingerprint()
             }
         }
     }
+
+    private fun checkAndRequestPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            log("Requesting permissions...\n")
+            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), 100)
+        } else {
+            log("All permissions already granted!\n")
+        }
+    }
+
     private fun triggerWifiScan() {
         val locManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         val isLocationOn = locManager != null && LocationManagerCompat.isLocationEnabled(locManager)
@@ -460,50 +551,15 @@ class MainActivity : AppCompatActivity() {
         if (!isSurveying) {
             log("Starting Wi-Fi scan...\n")
         }
-        val started = wifiManager.startScan()
-        if (!started) {
-            log("⚠️ Scan throttled by Android OS (Retrying in 2s)...\n")
+
+        val success = wifiManager.startScan()
+        if (!success) {
             scanHandler.postDelayed({
-                if (isScanningActive) {
-                    val retry = wifiManager.startScan()
-                    if (!retry && currentSampleCount == 0) {
-                        log("❌ Scan blocked. Ensure Wi-Fi scan throttling is OFF in Developer Options.\n")
-                        isScanningActive = false
-                        btnSurvey.isEnabled = true
-                        btnLocate.isEnabled = true
-                        btnClearData.isEnabled = true
-                        btnSettings.isEnabled = true
-                        releaseScreenWakeLock()
-                    }
-                }
-            }, 2000)
+                if (isScanningActive) triggerWifiScan()
+            }, 1500)
         }
     }
 
-    private fun checkAndRequestPermissions() {
-        val neededPermissions = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-
-        // Android 13+ requires NEARBY_WIFI_DEVICES permission
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            neededPermissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-        }
-
-        // Filter out permissions already granted
-        val permissionsToRequest = neededPermissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (permissionsToRequest.isNotEmpty()) {
-            log("Requesting permissions...\n")
-            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), 100)
-        } else {
-            log("All permissions already granted!\n")
-        }
-     //if(ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED)
-    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -523,14 +579,14 @@ class MainActivity : AppCompatActivity() {
         wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         log("App initialized.\n")
         checkAndRequestPermissions()
-        loadSettings() // Load user-configured parameters from SharedPreferences
-        loadFingerprintsFromCsv() // Load saved spots from CSV
+        loadSettings() // Load user-configured parameters & strategy mode from SharedPreferences
+        loadFingerprintsFromCsv() // Load saved spots from CSV and build strategy models
         updateProgressDisplay(0, surveySampleCount, "Survey Progress")
 
         val intentFilter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
         registerReceiver(wifiScanReceiver, intentFilter)
 
-        // 0. Settings Button: Configure survey/locate counts, k-NN k, and outlier filter
+        // 0. Settings Button: Configure survey/locate counts, k-NN k, and strategy selection
         btnSettings.setOnClickListener {
             if (isScanningActive) {
                 log("\n⚠️ A scan is already in progress, please wait...\n")
@@ -574,7 +630,7 @@ class MainActivity : AppCompatActivity() {
             triggerWifiScan()
         }
 
-        // 2. Locate Button: Measure live signals and run k-NN to find where you are
+        // 2. Locate Button: Measure live signals and run localization strategy
         btnLocate.setOnClickListener {
             if (isScanningActive) {
                 log("\n⚠️ A scan is already in progress, please wait...\n")
@@ -601,7 +657,8 @@ class MainActivity : AppCompatActivity() {
             updateProgressDisplay(0, activeTargetSamples, "Locating position...")
 
             log("\n========================================\n")
-            log("📍 Locating position (averaging $locateSampleCount scans, $knnK-NN)...\n")
+            val modeTitle = selectedStrategyMode.title
+            log("📍 Locating position ($modeTitle, averaging $locateSampleCount scans)...\n")
             log("========================================\n")
 
             triggerWifiScan()
@@ -619,6 +676,7 @@ class MainActivity : AppCompatActivity() {
                 .setMessage("Are you sure you want to permanently delete all saved spots from memory and remove $CSV_FILE_NAME?")
                 .setPositiveButton("Yes, Delete") { _, _ ->
                     surveyDatabase.clear()
+                    rebuildStrategyModels()
                     val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
                     if (file.exists()) {
                         file.delete()
@@ -632,12 +690,14 @@ class MainActivity : AppCompatActivity() {
                 .show()
         }
     }
+
     override fun onDestroy() {
         super.onDestroy()
         releaseScreenWakeLock()
         scanHandler.removeCallbacksAndMessages(null)
         unregisterReceiver(wifiScanReceiver)
     }
+
     private fun log(message: String) {
         tvLogs.append(message)
         scrollView.post {

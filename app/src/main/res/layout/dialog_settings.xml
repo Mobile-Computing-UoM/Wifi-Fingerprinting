@@ -1,52 +1,101 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="20dp">
+    android:layout_height="wrap_content">
 
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Survey Iteration Count (Total Scans per Spot):"
-        android:textStyle="bold"
-        android:textSize="14sp" />
+        android:orientation="vertical"
+        android:padding="20dp">
 
-    <EditText
-        android:id="@+id/editSurveyCount"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:inputType="number"
-        android:hint="e.g. 20, 50, 100..."
-        android:layout_marginBottom="14dp" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Inference Strategy Selection:"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:textColor="#1A237E"
+            android:layout_marginBottom="4dp" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Locating Iteration Count (Scans for Where Am I):"
-        android:textStyle="bold"
-        android:textSize="14sp" />
+        <RadioGroup
+            android:id="@+id/rgStrategySelection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
 
-    <EditText
-        android:id="@+id/editLocateCount"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:inputType="number"
-        android:hint="e.g. 10"
-        android:layout_marginBottom="14dp" />
+            <RadioButton
+                android:id="@+id/rbStrategyBoth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Both Strategies (Side-by-Side Comparison)"
+                android:textSize="13sp"
+                android:checked="true" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="k-NN Matching Parameter (k = 1, 3, 5...):"
-        android:textStyle="bold"
-        android:textSize="14sp" />
+            <RadioButton
+                android:id="@+id/rbStrategyKnn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Strategy 1: k-NN Only"
+                android:textSize="13sp" />
 
-    <EditText
-        android:id="@+id/editKnnK"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:inputType="number"
-        android:hint="e.g. 1" />
+            <RadioButton
+                android:id="@+id/rbStrategyFuzzy"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Strategy 2: Fuzzy 3D Matrix Only"
+                android:textSize="13sp" />
+        </RadioGroup>
 
-</LinearLayout>
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#DDDDDD"
+            android:layout_marginBottom="14dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Survey Iteration Count (Total Scans per Spot):"
+            android:textStyle="bold"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/editSurveyCount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:hint="e.g. 20, 50, 100..."
+            android:layout_marginBottom="14dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Locating Iteration Count (Scans for Where Am I):"
+            android:textStyle="bold"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/editLocateCount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:hint="e.g. 10"
+            android:layout_marginBottom="14dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="k-NN Matching Parameter (k = 1, 3, 5...):"
+            android:textStyle="bold"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/editKnnK"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:hint="e.g. 1" />
+
+    </LinearLayout>
+</ScrollView>
