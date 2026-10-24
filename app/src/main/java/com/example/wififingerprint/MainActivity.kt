@@ -310,14 +310,29 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Majority voting among top k candidates; break ties by picking the candidate with the smallest distance
-            val votes = topK.groupingBy { it.spotLabel }.eachCount()
-            val maxVotes = votes.values.maxOrNull() ?: 0
-            val tiedCandidates = votes.filter { it.value == maxVotes }.keys
-            val winner = topK.first { it.spotLabel in tiedCandidates }.spotLabel
-            val winnerCand = topK.first { it.spotLabel == winner }
+            // Distance-Weighted k-NN (WKNN) Voting (Fix for Bug 2):
+            // Instead of giving equal 1-vote to every neighbor, weight each candidate inversely by distance:
+            // weight = 1.0 / (distance + 0.1). Closer neighbors have much higher voting power.
+            val spotWeights = mutableMapOf<String, Double>()
+            for (cand in topK) {
+                val weight = 1.0 / (cand.totalDistance + 0.1)
+                spotWeights[cand.spotLabel] = (spotWeights[cand.spotLabel] ?: 0.0) + weight
+            }
 
-            log("\n📍 PREDICTED LOCATION ($k-NN Mode): $winner (Score: ${"%.2f".format(winnerCand.totalDistance)} dBm, RMSE: ${"%.2f".format(winnerCand.rawRmse)} dBm, ${winnerCand.matchedAps}/${winnerCand.totalAps} APs matched)\n")
+            val totalWeightSum = spotWeights.values.sum()
+            val winner = spotWeights.maxByOrNull { it.value }?.key ?: topK.first().spotLabel
+            val winnerCand = topK.first { it.spotLabel == winner }
+            val confidence = if (totalWeightSum > 0) ((spotWeights[winner]!! / totalWeightSum) * 100.0).roundToInt() else 100
+
+            if (k > 1) {
+                log("\nWeighted k-NN Voting Weights:\n")
+                for ((spot, weight) in spotWeights.toList().sortedByDescending { it.second }) {
+                    val pct = if (totalWeightSum > 0) ((weight / totalWeightSum) * 100.0).roundToInt() else 0
+                    log("   • $spot: weight ${"%.3f".format(weight)} ($pct%)\n")
+                }
+            }
+
+            log("\n📍 PREDICTED LOCATION (Weighted $k-NN): $winner (Confidence: $confidence%, Score: ${"%.2f".format(winnerCand.totalDistance)} dBm, RMSE: ${"%.2f".format(winnerCand.rawRmse)} dBm, ${winnerCand.matchedAps}/${winnerCand.totalAps} APs matched)\n")
         } else {
             log("\n⚠️ Could not determine location: no common APs matched with any saved spot.\n")
         }
