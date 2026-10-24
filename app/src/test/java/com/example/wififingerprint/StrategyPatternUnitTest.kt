@@ -85,14 +85,14 @@ class StrategyPatternUnitTest {
         assertNotNull(fuzzyResult.confidenceMargin)
         assertTrue("Winning margin must be positive", fuzzyResult.confidenceMargin!! > 0.0)
 
-        // In Hall:
-        // AP1(-66): 15/100 = 0.15
-        // AP2(-73): 30/100 = 0.30
-        // AP3(-89): 25/100 = 0.25
-        // AP4(NS):  100/100 = 1.00
-        // Average = (0.15 + 0.30 + 0.25 + 1.00) / 4 = 0.425
+        // In Hall (tolerance bandwidth Δ = 3.5 dBm):
+        // AP1(-66): 60*(-67: dist 1 => 5/7) + 25*(-65: dist 1 => 5/7) + 15*(-66: dist 0 => 1.0) = 75.71 / 100 = 0.7571
+        // AP2(-73): 30*(-73: dist 0 => 1.0) + 70*(-75: dist 2 => 3/7) = 60.0 / 100 = 0.6000
+        // AP3(-89): 25*(-89: dist 0 => 1.0) + 75*(-90: dist 1 => 5/7) = 78.57 / 100 = 0.7857
+        // Relevant active APs = [ap1, ap2, ap3]
+        // Average = (0.7571 + 0.6000 + 0.7857) / 3 ≈ 0.7143
         val hallRanking = fuzzyResult.rankings.first { it.spotLabel == "Hall" }
-        assertEquals(0.425, hallRanking.scoreMetric, 0.001)
+        assertEquals(0.7143, hallRanking.scoreMetric, 0.005)
     }
 
     @Test
@@ -107,19 +107,18 @@ class StrategyPatternUnitTest {
         assertEquals("Hall", fuzzyResult.predictedSpot)
 
         // In Hall:
-        // AP1(-66): 0.15
-        // AP2(-73): 0.30
-        // AP3(-97): 0.00 (Unseen deep fade)
-        // AP4(NS):  1.00
-        // Average = (0.15 + 0.30 + 0.00 + 1.00) / 4 = 0.3625
+        // AP1(-66): 0.7571
+        // AP2(-73): 0.6000
+        // AP3(-97): 0.0000 (Distance to [-89, -90] is > 3.5 dBm -> drops to 0.0)
+        // Average = (0.7571 + 0.6000 + 0.0000) / 3 ≈ 0.4524
         val hallRanking = fuzzyResult.rankings.first { it.spotLabel == "Hall" }
-        assertEquals(0.3625, hallRanking.scoreMetric, 0.001)
+        assertEquals(0.4524, hallRanking.scoreMetric, 0.005)
 
-        // Lab average: AP1(0) + AP2(0) + AP3(0) + AP4(NS=0.50) / 4 = 0.125
+        // Lab active APs: [ap1, ap2, ap3, ap4] -> AP4 NS=0.50, others 0.0 -> Avg = 0.50 / 4 = 0.125
         val labRanking = fuzzyResult.rankings.first { it.spotLabel == "Lab" }
-        assertEquals(0.125, labRanking.scoreMetric, 0.001)
+        assertEquals(0.125, labRanking.scoreMetric, 0.005)
 
-        // Margin = 0.3625 - 0.125 = 0.2375
-        assertEquals(0.2375, fuzzyResult.confidenceMargin!!, 0.001)
+        // Winning Margin = 0.4524 - 0.125 = 0.3274
+        assertEquals(0.3274, fuzzyResult.confidenceMargin!!, 0.005)
     }
 }
