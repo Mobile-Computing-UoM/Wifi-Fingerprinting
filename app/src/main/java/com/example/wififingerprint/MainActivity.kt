@@ -18,6 +18,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -61,7 +62,18 @@ data class Fingerprint(
 class MainActivity : AppCompatActivity() {
     private lateinit var tabLayout: TabLayout
     private lateinit var layoutScannerView: LinearLayout
+    private lateinit var layoutSurveyAccView: LinearLayout
     private lateinit var layoutHistoryView: LinearLayout
+
+    // Tab 1: Survey Validation History
+    private lateinit var tvSurveyAccStats: TextView
+    private lateinit var btnRefreshSurveyAcc: Button
+    private lateinit var tvEmptySurveyAcc: TextView
+    private lateinit var rvSurveyAccHistory: RecyclerView
+    private var surveyCalibAdapter: SurveyCalibrationAdapter? = null
+    private val SURVEY_CALIB_CSV_NAME = "survey_calibration_history.csv"
+
+    // Tab 2: Live Inference Feedback History
     private lateinit var tvHistoryStats: TextView
     private lateinit var btnRefreshHistory: Button
     private lateinit var tvEmptyHistory: TextView
@@ -130,10 +142,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Configurable parameters (persisted in SharedPreferences)
-    private var surveySampleCount = 20    // Scans per survey spot
+    private var surveySampleCount = 50    // Scans per survey spot
     private var locateSampleCount = 10    // Scans for locate
     private var knnK = 1                 // k for k-NN matching
-    private var activeTargetSamples = 20 // Current active target
+    private var activeTargetSamples = 50 // Current active target
+    private var testSplitPercent = 30    // Default 30% held-out test split
+    private var isAutoCalibrationEnabled = false
+    private var autoCalibTarget = 80     // Target accuracy %
+    private var autoCalibStrategy = "FUZZY_MATRIX" // "FUZZY_MATRIX" or "KNN"
 
     private var currentSampleCount = 0
     private var isSurveying = true // true = Survey mode, false = Locate mode
@@ -141,6 +157,7 @@ class MainActivity : AppCompatActivity() {
 
     private val sampleBuffer = mutableMapOf<String, MutableList<Int>>()
     private val bssidToSsidMap = mutableMapOf<String, String>()
+    private val scanSnapshots = mutableListOf<Map<String, Int>>()
     private val scanHandler = Handler(Looper.getMainLooper())
 
     private fun rebuildStrategyModels() {
@@ -151,19 +168,36 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         val prefs = getSharedPreferences("FingerprintSettings", Context.MODE_PRIVATE)
-        surveySampleCount = prefs.getInt("survey_count", 20)
+        surveySampleCount = prefs.getInt("survey_count", 50)
         locateSampleCount = prefs.getInt("locate_count", 10)
         knnK = prefs.getInt("knn_k", 1)
+        testSplitPercent = prefs.getInt("test_split_percent", 30)
+        isAutoCalibrationEnabled = prefs.getBoolean("auto_calib_enabled", false)
+        autoCalibTarget = prefs.getInt("auto_calib_target", 80)
+        autoCalibStrategy = prefs.getString("auto_calib_strategy", "FUZZY_MATRIX") ?: "FUZZY_MATRIX"
         selectedStrategyMode = StrategyMode.fromKey(prefs.getString("strategy_mode", StrategyMode.BOTH.key))
         knnStrategy.k = knnK
         updateSettingsSummary()
     }
 
-    private fun saveSettings(survey: Int, locate: Int, knn: Int, mode: StrategyMode) {
+    private fun saveSettings(
+        survey: Int,
+        locate: Int,
+        knn: Int,
+        mode: StrategyMode,
+        testSplit: Int,
+        autoCalib: Boolean,
+        targetAcc: Int,
+        calibStrat: String
+    ) {
         surveySampleCount = survey
         locateSampleCount = locate
         knnK = knn
         selectedStrategyMode = mode
+        testSplitPercent = testSplit
+        isAutoCalibrationEnabled = autoCalib
+        autoCalibTarget = targetAcc
+        autoCalibStrategy = calibStrat
         knnStrategy.k = knnK
 
         val prefs = getSharedPreferences("FingerprintSettings", Context.MODE_PRIVATE)
@@ -172,13 +206,18 @@ class MainActivity : AppCompatActivity() {
             putInt("locate_count", locate)
             putInt("knn_k", knn)
             putString("strategy_mode", mode.key)
+            putInt("test_split_percent", testSplit)
+            putBoolean("auto_calib_enabled", autoCalib)
+            putInt("auto_calib_target", targetAcc)
+            putString("auto_calib_strategy", calibStrat)
             apply()
         }
         updateSettingsSummary()
         if (!isScanningActive) {
             updateProgressDisplay(0, surveySampleCount, "Survey Progress")
         }
-        log("\n⚙️ Settings saved: Survey=$survey | Locate=$locate | k-NN=$knn | Strategy=${mode.title}\n")
+        val calibInfo = if (autoCalib) "ON ($targetAcc% via $calibStrat)" else "OFF"
+        log("\n⚙️ Settings saved: Survey=$survey (${100 - testSplit}/$testSplit split) | Locate=$locate | Centroid k-NN=$knn | Auto-Calib=$calibInfo | Strategy=${mode.title}\n")
     }
 
     private fun updateProgressDisplay(current: Int, total: Int, label: String? = null) {
@@ -192,15 +231,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateSettingsSummary() {
         val stratShort = when (selectedStrategyMode) {
-            StrategyMode.KNN -> "k-NN"
+            StrategyMode.KNN -> "Centroid k-NN"
             StrategyMode.FUZZY_MATRIX -> "Fuzzy Matrix"
             StrategyMode.BOTH -> "Both (Side-by-Side)"
         }
-        tvSettingsSummary.text = "Params: Survey=$surveySampleCount | Locate=$locateSampleCount | k-NN=$knnK | Mode: $stratShort"
+        val calibInfo = if (isAutoCalibrationEnabled) {
+            val calibStrat = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy" else "Centroid"
+            "ON (≥$autoCalibTarget% via $calibStrat)"
+        } else {
+            "OFF"
+        }
+        tvSettingsSummary.text = "Params: Survey=$surveySampleCount (${100 - testSplitPercent}/$testSplitPercent Split) | Locate=$locateSampleCount | Auto-Calib=$calibInfo | Mode: $stratShort"
 
         // Dynamically update locate button label
         btnLocate.text = when (selectedStrategyMode) {
-            StrategyMode.KNN -> "2. Where Am I? (k-NN)"
+            StrategyMode.KNN -> "2. Where Am I? (Centroid k-NN)"
             StrategyMode.FUZZY_MATRIX -> "2. Where Am I? (Fuzzy Matrix)"
             StrategyMode.BOTH -> "2. Where Am I? (Compare Both)"
         }
@@ -211,6 +256,13 @@ class MainActivity : AppCompatActivity() {
         val editSurvey = dialogView.findViewById<EditText>(R.id.editSurveyCount)
         val editLocate = dialogView.findViewById<EditText>(R.id.editLocateCount)
         val editKnn = dialogView.findViewById<EditText>(R.id.editKnnK)
+        val editTestSplit = dialogView.findViewById<EditText>(R.id.editTestSplitPercent)
+
+        val cbAutoCalib = dialogView.findViewById<CheckBox>(R.id.cbAutoCalibration)
+        val layoutAutoCalib = dialogView.findViewById<LinearLayout>(R.id.layoutAutoCalibSettings)
+        val editTargetAcc = dialogView.findViewById<EditText>(R.id.editAutoCalibTarget)
+        val rbAutoFuzzy = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibFuzzy)
+        val rbAutoKnn = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibKnn)
 
         val rbBoth = dialogView.findViewById<RadioButton>(R.id.rbStrategyBoth)
         val rbKnn = dialogView.findViewById<RadioButton>(R.id.rbStrategyKnn)
@@ -219,6 +271,20 @@ class MainActivity : AppCompatActivity() {
         editSurvey.setText(surveySampleCount.toString())
         editLocate.setText(locateSampleCount.toString())
         editKnn.setText(knnK.toString())
+        editTestSplit.setText(testSplitPercent.toString())
+
+        cbAutoCalib.isChecked = isAutoCalibrationEnabled
+        layoutAutoCalib.visibility = if (isAutoCalibrationEnabled) View.VISIBLE else View.GONE
+        cbAutoCalib.setOnCheckedChangeListener { _, isChecked ->
+            layoutAutoCalib.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        editTargetAcc.setText(autoCalibTarget.toString())
+        if (autoCalibStrategy == "KNN") {
+            rbAutoKnn.isChecked = true
+        } else {
+            rbAutoFuzzy.isChecked = true
+        }
 
         when (selectedStrategyMode) {
             StrategyMode.BOTH -> rbBoth.isChecked = true
@@ -227,12 +293,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Configure Parameters & Strategy")
+            .setTitle("Configure Parameters & Auto-Calibration")
             .setView(dialogView)
             .setPositiveButton("Save") { _, _ ->
                 val sCount = editSurvey.text.toString().toIntOrNull() ?: surveySampleCount
                 val lCount = editLocate.text.toString().toIntOrNull() ?: locateSampleCount
                 val kVal = editKnn.text.toString().toIntOrNull() ?: knnK
+                val splitVal = (editTestSplit.text.toString().toIntOrNull() ?: testSplitPercent).coerceIn(10, 50)
+                val targetAcc = (editTargetAcc.text.toString().toIntOrNull() ?: autoCalibTarget).coerceIn(50, 100)
+                val calibStrat = if (rbAutoKnn.isChecked) "KNN" else "FUZZY_MATRIX"
 
                 val chosenMode = when {
                     rbKnn.isChecked -> StrategyMode.KNN
@@ -243,7 +312,7 @@ class MainActivity : AppCompatActivity() {
                 if (sCount <= 0 || lCount <= 0 || kVal <= 0) {
                     Toast.makeText(this, "Parameters must be positive integers!", Toast.LENGTH_SHORT).show()
                 } else {
-                    saveSettings(sCount, lCount, kVal, chosenMode)
+                    saveSettings(sCount, lCount, kVal, chosenMode, splitVal, cbAutoCalib.isChecked, targetAcc, calibStrat)
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -272,18 +341,85 @@ class MainActivity : AppCompatActivity() {
 
         if (isSurveying) {
             val spot = editSpotName.text.toString().trim()
+            val totalScans = scanSnapshots.size
+            val testScansCount = maxOf(1, (totalScans * testSplitPercent) / 100)
+            val trainScansCount = maxOf(1, totalScans - testScansCount)
+
+            val trainSnapshots = scanSnapshots.take(trainScansCount)
+            val testSnapshots = scanSnapshots.drop(trainScansCount)
+
+            // Build candidate spot model from train scans only
+            val trainApMap = mutableMapOf<String, MutableList<Int>>()
+            for (scan in trainSnapshots) {
+                for ((bssid, rssi) in scan) {
+                    trainApMap.getOrPut(bssid) { mutableListOf() }.add(rssi)
+                }
+            }
+
+            val trainMeasurements = trainApMap.map { (bssid, readings) ->
+                RawApMeasurement(
+                    bssid = bssid,
+                    ssid = bssidToSsidMap[bssid] ?: "Unknown",
+                    rawReadings = readings,
+                    avgRssi = readings.average().roundToInt()
+                )
+            }
+            val candidateSpot = RawSurveySpot(spot, trainMeasurements, trainScansCount)
+            val candidateDatabase = surveyDatabase.filter { it.spotLabel != spot } + candidateSpot
+
+            val evalKnnStrategy = KnnStrategy(knnK)
+            evalKnnStrategy.buildModel(candidateDatabase)
+            val evalFuzzyStrategy = FuzzyMatrixStrategy()
+            evalFuzzyStrategy.buildModel(candidateDatabase)
+
+            var knnCorrect = 0
+            var fuzzyCorrect = 0
+            for (testScan in testSnapshots) {
+                val query = LiveQueryScan(testScan, bssidToSsidMap)
+                val knnRes = evalKnnStrategy.infer(query)
+                val fuzzyRes = evalFuzzyStrategy.infer(query)
+
+                if (knnRes.predictedSpot == spot) knnCorrect++
+                if (fuzzyRes.predictedSpot == spot) fuzzyCorrect++
+            }
+
+            val knnAcc = (knnCorrect.toDouble() / testScansCount) * 100.0
+            val fuzzyAcc = (fuzzyCorrect.toDouble() / testScansCount) * 100.0
+            val benchmarkAcc = if (autoCalibStrategy == "FUZZY_MATRIX") fuzzyAcc else knnAcc
+
+            // Auto-Calibration condition check
+            val maxAutoLimit = surveySampleCount + 30
+            if (isAutoCalibrationEnabled && benchmarkAcc < autoCalibTarget && activeTargetSamples < maxAutoLimit) {
+                val nextTarget = activeTargetSamples + 5
+                activeTargetSamples = nextTarget
+                val stratName = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy Matrix" else "Centroid k-NN"
+                log("\n⚠️ Auto-Calibration: $stratName accuracy is ${"%.1f".format(benchmarkAcc)}% (< target $autoCalibTarget%).\n")
+                log("⚡ Extending survey: collecting +5 more scans (Target now $activeTargetSamples scans)...\n")
+                updateProgressDisplay(currentSampleCount, activeTargetSamples, "Auto-Calibrating '$spot'...")
+                scanHandler.postDelayed({
+                    if (isScanningActive) triggerWifiScan()
+                }, 1000)
+                return
+            }
+
+            // Target met or Auto-Calib finished: finalize survey
             updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Survey Completed: '$spot'")
             log("\n--- Survey Results for '$spot' ($activeTargetSamples iterations) ---\n")
             for (m in processedMeasurements) {
                 log("• ${m.ssid} (${m.bssid}): Avg ${m.avgRssi} dBm (${m.rawReadings.size} samples)\n")
             }
 
-            // Convert to RawSurveySpot representation and save to database
+            // Save full measurements into database
             val rawMeasurements = processedMeasurements.map {
                 RawApMeasurement(it.bssid, it.ssid, it.rawReadings, it.avgRssi)
             }
             val spotRecord = RawSurveySpot(spot, rawMeasurements, activeTargetSamples)
-            surveyDatabase.add(spotRecord)
+            val existingIdx = surveyDatabase.indexOfFirst { it.spotLabel == spot }
+            if (existingIdx >= 0) {
+                surveyDatabase[existingIdx] = spotRecord
+            } else {
+                surveyDatabase.add(spotRecord)
+            }
 
             // Rebuild Strategy Models dynamically with the newly added spot
             rebuildStrategyModels()
@@ -291,8 +427,44 @@ class MainActivity : AppCompatActivity() {
             // Save to CSV file with all raw samples
             saveFingerprintToCsv(spot, processedMeasurements)
 
-            log("💾 Saved '$spot' with ${averagedFingerprint.size} APs to database & CSV.\n")
+            val autoCalibStatus = if (isAutoCalibrationEnabled) {
+                if (benchmarkAcc >= autoCalibTarget) "Target Met (${autoCalibTarget}%)" else "Capped at Limit"
+            } else {
+                "Disabled"
+            }
+
+            val timestamp = System.currentTimeMillis()
+            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val isoTime = sdf.format(Date(timestamp))
+
+            val calibRecord = SurveyCalibrationRecord(
+                timestampMs = timestamp,
+                isoTime = isoTime,
+                spotLabel = spot,
+                totalScans = totalScans,
+                trainScans = trainScansCount,
+                testScans = testScansCount,
+                knnAccuracy = knnAcc,
+                fuzzyAccuracy = fuzzyAcc,
+                autoCalibrated = autoCalibStatus,
+                rawCsvLine = "$timestamp,\"$isoTime\",\"$spot\",$totalScans,$trainScansCount,$testScansCount,${"%.1f".format(knnAcc)},${"%.1f".format(fuzzyAcc)},\"$autoCalibStatus\""
+            )
+            saveSurveyCalibrationToCsv(calibRecord)
+
+            log("\n========================================\n")
+            log("📊 HELD-OUT VALIDATION RESULTS for '$spot'\n")
+            log("========================================\n")
+            log("• Total Scans: $totalScans ($trainScansCount Build / $testScansCount Held-Out Test)\n")
+            log("• Strategy 1 (Centroid k-NN):   ${"%.1f".format(knnAcc)}% ($knnCorrect/$testScansCount correct)\n")
+            log("• Strategy 2 (Fuzzy Matrix):    ${"%.1f".format(fuzzyAcc)}% ($fuzzyCorrect/$testScansCount correct)\n")
+            log("• Auto-Calibration:             $autoCalibStatus\n")
+            log("💾 Saved spot to CSV & validation history to survey_calibration_history.csv\n")
             log("Total spots in memory: ${surveyDatabase.size}\n")
+            log("========================================\n\n")
+
+            refreshSurveyAccView()
         } else {
             updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Locate Completed")
             log("\n--- Live Scan ($activeTargetSamples iterations) ---\n")
@@ -636,6 +808,131 @@ class MainActivity : AppCompatActivity() {
         updateHistoryStats()
     }
 
+    /**
+     * Appends a survey train/test calibration record to survey_calibration_history.csv.
+     */
+    private fun saveSurveyCalibrationToCsv(record: SurveyCalibrationRecord) {
+        try {
+            val file = File(getExternalFilesDir(null), SURVEY_CALIB_CSV_NAME)
+            val isNewFile = !file.exists()
+            val writer = FileWriter(file, true)
+
+            if (isNewFile) {
+                writer.append("timestamp_ms,iso_time,spot_label,total_scans,train_scans,test_scans,knn_acc,fuzzy_acc,auto_calib\n")
+            }
+
+            writer.append("${record.timestampMs},\"${record.isoTime}\",\"${record.spotLabel}\",${record.totalScans},${record.trainScans},${record.testScans},${"%.1f".format(record.knnAccuracy)},${"%.1f".format(record.fuzzyAccuracy)},\"${record.autoCalibrated}\"\n")
+            writer.flush()
+            writer.close()
+        } catch (e: Exception) {
+            log("❌ Error writing survey calibration CSV: ${e.message}\n")
+        }
+    }
+
+    /**
+     * Loads all persisted survey validation records from survey_calibration_history.csv.
+     */
+    private fun loadSurveyCalibrationHistory(): List<SurveyCalibrationRecord> {
+        val file = File(getExternalFilesDir(null), SURVEY_CALIB_CSV_NAME)
+        if (!file.exists()) return emptyList()
+
+        val records = mutableListOf<SurveyCalibrationRecord>()
+        file.forEachLine { line ->
+            if (line.isNotBlank() && !line.startsWith("timestamp_ms")) {
+                val parts = parseCsvLine(line)
+                if (parts.size >= 9) {
+                    val timestampMs = parts[0].toLongOrNull() ?: 0L
+                    val isoTime = parts[1]
+                    val spotLabel = parts[2]
+                    val totalScans = parts[3].toIntOrNull() ?: 0
+                    val trainScans = parts[4].toIntOrNull() ?: 0
+                    val testScans = parts[5].toIntOrNull() ?: 0
+                    val knnAcc = parts[6].toDoubleOrNull() ?: 0.0
+                    val fuzzyAcc = parts[7].toDoubleOrNull() ?: 0.0
+                    val autoCalib = parts[8]
+
+                    records.add(
+                        SurveyCalibrationRecord(
+                            timestampMs = timestampMs,
+                            isoTime = isoTime,
+                            spotLabel = spotLabel,
+                            totalScans = totalScans,
+                            trainScans = trainScans,
+                            testScans = testScans,
+                            knnAccuracy = knnAcc,
+                            fuzzyAccuracy = fuzzyAcc,
+                            autoCalibrated = autoCalib,
+                            rawCsvLine = line
+                        )
+                    )
+                }
+            }
+        }
+        return records.reversed()
+    }
+
+    /**
+     * Deletes a single specific row from survey_calibration_history.csv and updates UI.
+     */
+    private fun deleteSurveyCalibrationRecord(record: SurveyCalibrationRecord, position: Int) {
+        val file = File(getExternalFilesDir(null), SURVEY_CALIB_CSV_NAME)
+        if (file.exists()) {
+            val lines = file.readLines()
+            val remainingLines = lines.filter { line ->
+                line.startsWith("timestamp_ms") || line.trim() != record.rawCsvLine.trim()
+            }
+            file.writeText(remainingLines.joinToString("\n") + if (remainingLines.isNotEmpty()) "\n" else "")
+        }
+
+        surveyCalibAdapter?.removeAt(position)
+        updateSurveyAccStats()
+        Toast.makeText(this, "Deleted survey validation record for '${record.spotLabel}'", Toast.LENGTH_SHORT).show()
+        log("🗑️ Deleted survey calibration row for '${record.spotLabel}'\n")
+    }
+
+    /**
+     * Updates header statistics for survey calibration history.
+     */
+    private fun updateSurveyAccStats() {
+        val count = surveyCalibAdapter?.itemCount ?: 0
+        if (count == 0) {
+            tvEmptySurveyAcc.visibility = View.VISIBLE
+            rvSurveyAccHistory.visibility = View.GONE
+            tvSurveyAccStats.text = "Survey Calibration (0 records)"
+        } else {
+            tvEmptySurveyAcc.visibility = View.GONE
+            rvSurveyAccHistory.visibility = View.VISIBLE
+            val records = surveyCalibAdapter?.records ?: emptyList()
+            val avgKnn = records.map { it.knnAccuracy }.average()
+            val avgFuzzy = records.map { it.fuzzyAccuracy }.average()
+            tvSurveyAccStats.text = "Records: $count | Avg Centroid: ${"%.1f".format(avgKnn)}% | Avg Fuzzy: ${"%.1f".format(avgFuzzy)}%"
+        }
+    }
+
+    /**
+     * Reloads and displays the survey calibration list.
+     */
+    private fun refreshSurveyAccView() {
+        val records = loadSurveyCalibrationHistory().toMutableList()
+        if (surveyCalibAdapter == null) {
+            surveyCalibAdapter = SurveyCalibrationAdapter(records) { item, pos ->
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Delete Calibration Record?")
+                    .setMessage("Permanently remove this survey validation record for '${item.spotLabel}' from CSV?")
+                    .setPositiveButton("Delete") { _, _ ->
+                        deleteSurveyCalibrationRecord(item, pos)
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            rvSurveyAccHistory.layoutManager = LinearLayoutManager(this)
+            rvSurveyAccHistory.adapter = surveyCalibAdapter
+        } else {
+            surveyCalibAdapter?.updateList(records)
+        }
+        updateSurveyAccStats()
+    }
+
     // Save fingerprint entry into wifi_fingerprints.csv including ALL raw measurements
     private fun saveFingerprintToCsv(spot: String, measurements: List<ApMeasurement>) {
         try {
@@ -771,6 +1068,7 @@ class MainActivity : AppCompatActivity() {
             val spot = if (isSurveying) editSpotName.text.toString().trim() else "Locate Position"
             updateProgressDisplay(currentSampleCount, activeTargetSamples, if (isSurveying) "Surveying '$spot'..." else "Locating...")
 
+            val currentScanMap = mutableMapOf<String, Int>()
             for (result in scanResults) {
                 val bssid = result.BSSID ?: continue
                 val ssid = if (result.SSID.isNullOrEmpty()) "Hidden" else result.SSID
@@ -778,6 +1076,10 @@ class MainActivity : AppCompatActivity() {
 
                 bssidToSsidMap[bssid] = ssid
                 sampleBuffer.getOrPut(bssid) { mutableListOf() }.add(rssi)
+                currentScanMap[bssid] = rssi
+            }
+            if (isSurveying) {
+                scanSnapshots.add(currentScanMap)
             }
 
             if (currentSampleCount < activeTargetSamples) {
@@ -859,35 +1161,61 @@ class MainActivity : AppCompatActivity() {
 
         tabLayout = findViewById(R.id.tabLayout)
         layoutScannerView = findViewById(R.id.layoutScannerView)
+        layoutSurveyAccView = findViewById(R.id.layoutSurveyAccView)
         layoutHistoryView = findViewById(R.id.layoutHistoryView)
+
+        // Tab 1: Survey Validation History Views
+        tvSurveyAccStats = findViewById(R.id.tvSurveyAccStats)
+        btnRefreshSurveyAcc = findViewById(R.id.btnRefreshSurveyAcc)
+        tvEmptySurveyAcc = findViewById(R.id.tvEmptySurveyAcc)
+        rvSurveyAccHistory = findViewById(R.id.rvSurveyAccHistory)
+
+        // Tab 2: Live Inference Feedback History Views
         tvHistoryStats = findViewById(R.id.tvHistoryStats)
         btnRefreshHistory = findViewById(R.id.btnRefreshHistory)
         tvEmptyHistory = findViewById(R.id.tvEmptyHistory)
         rvFeedbackHistory = findViewById(R.id.rvFeedbackHistory)
 
         tabLayout.addTab(tabLayout.newTab().setText("📡 Scanner"))
-        tabLayout.addTab(tabLayout.newTab().setText("📋 Inference History"))
+        tabLayout.addTab(tabLayout.newTab().setText("📊 Survey Accuracy"))
+        tabLayout.addTab(tabLayout.newTab().setText("📋 Live History"))
 
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab?) {
-                if (tab?.position == 1) {
-                    layoutScannerView.visibility = View.GONE
-                    layoutHistoryView.visibility = View.VISIBLE
-                    refreshHistoryView()
-                } else {
-                    layoutScannerView.visibility = View.VISIBLE
-                    layoutHistoryView.visibility = View.GONE
+                when (tab?.position) {
+                    0 -> {
+                        layoutScannerView.visibility = View.VISIBLE
+                        layoutSurveyAccView.visibility = View.GONE
+                        layoutHistoryView.visibility = View.GONE
+                    }
+                    1 -> {
+                        layoutScannerView.visibility = View.GONE
+                        layoutSurveyAccView.visibility = View.VISIBLE
+                        layoutHistoryView.visibility = View.GONE
+                        refreshSurveyAccView()
+                    }
+                    2 -> {
+                        layoutScannerView.visibility = View.GONE
+                        layoutSurveyAccView.visibility = View.GONE
+                        layoutHistoryView.visibility = View.VISIBLE
+                        refreshHistoryView()
+                    }
                 }
             }
 
             override fun onTabUnselected(tab: TabLayout.Tab?) {}
 
             override fun onTabReselected(tab: TabLayout.Tab?) {
-                if (tab?.position == 1) {
-                    refreshHistoryView()
+                when (tab?.position) {
+                    1 -> refreshSurveyAccView()
+                    2 -> refreshHistoryView()
                 }
             }
         })
+
+        btnRefreshSurveyAcc.setOnClickListener {
+            refreshSurveyAccView()
+        }
 
         btnRefreshHistory.setOnClickListener {
             refreshHistoryView()
@@ -959,6 +1287,7 @@ class MainActivity : AppCompatActivity() {
             acquireScreenWakeLock()
             sampleBuffer.clear()
             bssidToSsidMap.clear()
+            scanSnapshots.clear()
             currentSampleCount = 0
 
             updateProgressDisplay(0, activeTargetSamples, "Surveying '$spot'...")
@@ -993,6 +1322,7 @@ class MainActivity : AppCompatActivity() {
             isSurveying = false
             sampleBuffer.clear()
             bssidToSsidMap.clear()
+            scanSnapshots.clear()
             currentSampleCount = 0
 
             updateProgressDisplay(0, activeTargetSamples, "Locating position...")

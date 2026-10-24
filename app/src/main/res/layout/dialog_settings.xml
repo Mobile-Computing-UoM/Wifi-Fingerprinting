@@ -36,14 +36,14 @@
                 android:id="@+id/rbStrategyKnn"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Strategy 1: k-NN Only"
+                android:text="Strategy 1: Nearest Centroid / k-NN"
                 android:textSize="13sp" />
 
             <RadioButton
                 android:id="@+id/rbStrategyFuzzy"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Strategy 2: Fuzzy 3D Matrix Only"
+                android:text="Strategy 2: Fuzzy 3D Matrix"
                 android:textSize="13sp" />
         </RadioGroup>
 
@@ -53,6 +53,7 @@
             android:background="#DDDDDD"
             android:layout_marginBottom="14dp" />
 
+        <!-- Survey Iterations -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -65,7 +66,100 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:inputType="number"
-            android:hint="e.g. 20, 50, 100..."
+            android:hint="e.g. 50"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Train / Test Split Percentage -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Held-Out Test Split (% of scans for testing):"
+            android:textStyle="bold"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/editTestSplitPercent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:hint="e.g. 30 (35 build / 15 test)"
+            android:layout_marginBottom="14dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#DDDDDD"
+            android:layout_marginBottom="14dp" />
+
+        <!-- Auto-Calibration Mode -->
+        <CheckBox
+            android:id="@+id/cbAutoCalibration"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="⚡ Enable Auto-Calibration\n(Extend surveying until accuracy target is met)"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#1A237E"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:id="@+id/layoutAutoCalibSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#E8EAF6"
+            android:padding="10dp"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Auto-Calibration Target Accuracy (%):"
+                android:textStyle="bold"
+                android:textSize="13sp" />
+
+            <EditText
+                android:id="@+id/editAutoCalibTarget"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:hint="e.g. 80"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Benchmark Strategy for Auto-Calibration:"
+                android:textStyle="bold"
+                android:textSize="13sp"
+                android:layout_marginBottom="4dp" />
+
+            <RadioGroup
+                android:id="@+id/rgAutoCalibStrategy"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <RadioButton
+                    android:id="@+id/rbAutoCalibFuzzy"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Fuzzy Matrix (Strategy 2)"
+                    android:checked="true"
+                    android:textSize="12sp" />
+
+                <RadioButton
+                    android:id="@+id/rbAutoCalibKnn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Nearest Centroid (Strategy 1)"
+                    android:textSize="12sp" />
+            </RadioGroup>
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#DDDDDD"
             android:layout_marginBottom="14dp" />
 
         <TextView

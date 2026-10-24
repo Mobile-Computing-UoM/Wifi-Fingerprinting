@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@android:drawable/dialog_holo_light_frame"
+    android:padding="12dp"
+    android:layout_marginBottom="8dp">
+
+    <!-- Header: Spot Name, Time, Delete Button -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="6dp">
+
+        <TextView
+            android:id="@+id/tvCalibSpotName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="📍 Spot: Bedroom"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:textColor="#1A237E" />
+
+        <TextView
+            android:id="@+id/tvCalibTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="12:15 PM"
+            android:textSize="11sp"
+            android:textColor="#616161"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnDeleteCalibRow"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:text="🗑️"
+            android:textSize="13sp"
+            android:padding="0dp"
+            android:backgroundTint="#D32F2F"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- Scan Split Info -->
+    <TextView
+        android:id="@+id/tvCalibScanSplit"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="📊 Scans: 50 Total (35 Train / 15 Held-Out Test)"
+        android:textSize="12sp"
+        android:textColor="#424242"
+        android:layout_marginBottom="3dp" />
+
+    <!-- Accuracy Metrics -->
+    <TextView
+        android:id="@+id/tvCalibKnnAcc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="• Nearest Centroid / k-NN Acc: 86.7% (13/15)"
+        android:textSize="12sp"
+        android:textColor="#212121"
+        android:layout_marginBottom="2dp" />
+
+    <TextView
+        android:id="@+id/tvCalibFuzzyAcc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="• Fuzzy 3D Matrix Acc: 80.0% (12/15)"
+        android:textSize="12sp"
+        android:textColor="#212121"
+        android:layout_marginBottom="3dp" />
+
+    <!-- Auto Calibration Badge -->
+    <TextView
+        android:id="@+id/tvCalibAutoBadge"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚡ Auto-Calibration: Satisfied (≥80% Target)"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:textColor="#2E7D32" />
+</LinearLayout>

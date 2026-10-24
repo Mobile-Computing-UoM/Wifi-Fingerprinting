@@ -30,7 +30,7 @@
             android:textSize="12sp" />
     </LinearLayout>
 
-    <!-- Top Tabs: Scanner vs History -->
+    <!-- Top Tabs: 3 Tabs (Scanner, Survey Accuracy, Live History) -->
     <com.google.android.material.tabs.TabLayout
         android:id="@+id/tabLayout"
         android:layout_width="match_parent"
@@ -50,7 +50,7 @@
             android:id="@+id/tvSettingsSummary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Params: Survey=20 | Locate=10 | k-NN=1"
+            android:text="Params: Survey=50 (70/30 Split) | Locate=10 | Auto-Calib=OFF"
             android:textSize="12sp"
             android:textColor="#555555"
             android:layout_marginBottom="6dp" />
@@ -133,7 +133,7 @@
                     android:id="@+id/tvProgressText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="0/20 (0% completed)"
+                    android:text="0/50 (0% completed)"
                     android:textSize="12sp"
                     android:textStyle="bold"
                     android:textColor="#0D47A1" />
@@ -172,7 +172,66 @@
         </ScrollView>
     </LinearLayout>
 
-    <!-- TAB 2 CONTENT: Inference History & Validation Records -->
+    <!-- TAB 2 CONTENT: Survey Train/Test Calibration Accuracy History -->
+    <LinearLayout
+        android:id="@+id/layoutSurveyAccView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <!-- Calibration Header Action Bar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#E8EAF6"
+            android:padding="8dp"
+            android:layout_marginBottom="6dp">
+
+            <TextView
+                android:id="@+id/tvSurveyAccStats"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Survey Train/Test Validation Records"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#1A237E" />
+
+            <Button
+                android:id="@+id/btnRefreshSurveyAcc"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="🔄 Refresh"
+                android:textSize="11sp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp" />
+        </LinearLayout>
+
+        <!-- Empty State -->
+        <TextView
+            android:id="@+id/tvEmptySurveyAcc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No survey calibration records yet.\nRecord a survey spot with train/test split to log validation history."
+            android:gravity="center"
+            android:textSize="13sp"
+            android:textColor="#757575"
+            android:padding="24dp"
+            android:visibility="gone" />
+
+        <!-- Survey Accuracy RecyclerView -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvSurveyAccHistory"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+    </LinearLayout>
+
+    <!-- TAB 3 CONTENT: Inference History & Live Validation Records -->
     <LinearLayout
         android:id="@+id/layoutHistoryView"
         android:layout_width="match_parent"

@@ -4,12 +4,12 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
- * Strategy 1: Classical k-Nearest Neighbors (k-NN) using Euclidean RMSE
+ * Strategy 1: Nearest Centroid Classifier (NCC / k-NN Mean) using Euclidean distance
  * across common matching AP dimensions.
  */
 class KnnStrategy(var k: Int = 1) : LocalizationStrategy {
-    override val name: String = "Strategy 1: k-Nearest Neighbors (k-NN)"
-    override val shortCode: String = "k-NN"
+    override val name: String = "Strategy 1: Nearest Centroid (k-NN Mean)"
+    override val shortCode: String = "Centroid-kNN"
 
     private var spots: List<RawSurveySpot> = emptyList()
 

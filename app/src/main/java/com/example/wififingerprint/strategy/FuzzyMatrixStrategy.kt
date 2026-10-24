@@ -30,17 +30,22 @@ data class DiscreteFuzzyCell(
     }
 
     /**
-     * Compute membership grade with Neighbour Smoothing:
+     * Compute membership grade with Neighbour Smoothing and Graceful Long Tail:
      * - Exact match: 100% of stored raw membership
      * - ±1 dB neighbour: 50% of neighbour's stored membership
      * - ±2 dB neighbour: 25% of neighbour's stored membership
-     * Takes the maximum across exact, ±1 dB, and ±2 dB candidates:
-     *   μ_smoothed(v) = max(μ(v), 0.50 * max(μ(v-1), μ(v+1)), 0.25 * max(μ(v-2), μ(v+2)))
+     * - Long Tail (for d > 2 dB): 0.20 * exp(-d^2 / (2 * 4.0^2)) where d is the distance
+     *   to the nearest surveyed value. This provides k-NN-like graceful degradation while
+     *   preserving empirical peaks and avoiding sudden 0.0 cliffs!
      */
     fun getSmoothedMembership(observedRssi: Int?): Double {
         if (observedRssi == null) {
             return notSeenFrequency
         }
+        if (rssiFrequencies.isEmpty()) {
+            return 0.0
+        }
+
         val exact = rssiFrequencies[observedRssi] ?: 0.0
         val dist1 = max(
             rssiFrequencies[observedRssi - 1] ?: 0.0,
@@ -51,7 +56,25 @@ data class DiscreteFuzzyCell(
             rssiFrequencies[observedRssi + 2] ?: 0.0
         ) * 0.25
 
-        return max(exact, max(dist1, dist2))
+        val kernelScore = max(exact, max(dist1, dist2))
+        if (kernelScore > 0.0) {
+            return kernelScore
+        }
+
+        // Long tail decay for readings beyond ±2 dB
+        var minDistance = Double.MAX_VALUE
+        for (bin in rssiFrequencies.keys) {
+            val dist = kotlin.math.abs(observedRssi - bin).toDouble()
+            if (dist < minDistance) {
+                minDistance = dist
+            }
+        }
+
+        if (minDistance == Double.MAX_VALUE) return 0.0
+
+        val sigmaTail = 4.0
+        val tailScore = 0.20 * kotlin.math.exp(-(minDistance * minDistance) / (2.0 * sigmaTail * sigmaTail))
+        return tailScore.coerceIn(0.0, 1.0)
     }
 
     /**
