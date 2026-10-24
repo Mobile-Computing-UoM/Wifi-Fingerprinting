@@ -209,6 +209,18 @@
                 android:textSize="11sp"
                 android:paddingLeft="8dp"
                 android:paddingRight="8dp" />
+
+            <Button
+                android:id="@+id/btnDeleteAllSurveyAcc"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="🗑️ Delete All"
+                android:textSize="11sp"
+                android:backgroundTint="#D32F2F"
+                android:textColor="#FFFFFF"
+                android:layout_marginStart="6dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp" />
         </LinearLayout>
 
         <!-- Empty State -->
@@ -266,6 +278,18 @@
                 android:layout_height="36dp"
                 android:text="🔄 Refresh"
                 android:textSize="11sp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp" />
+
+            <Button
+                android:id="@+id/btnDeleteAllHistory"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="🗑️ Delete All"
+                android:textSize="11sp"
+                android:backgroundTint="#D32F2F"
+                android:textColor="#FFFFFF"
+                android:layout_marginStart="6dp"
                 android:paddingLeft="8dp"
                 android:paddingRight="8dp" />
         </LinearLayout>

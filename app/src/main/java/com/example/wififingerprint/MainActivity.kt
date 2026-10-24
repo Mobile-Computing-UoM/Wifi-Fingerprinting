@@ -68,6 +68,7 @@ class MainActivity : AppCompatActivity() {
     // Tab 1: Survey Validation History
     private lateinit var tvSurveyAccStats: TextView
     private lateinit var btnRefreshSurveyAcc: Button
+    private lateinit var btnDeleteAllSurveyAcc: Button
     private lateinit var tvEmptySurveyAcc: TextView
     private lateinit var rvSurveyAccHistory: RecyclerView
     private var surveyCalibAdapter: SurveyCalibrationAdapter? = null
@@ -76,6 +77,7 @@ class MainActivity : AppCompatActivity() {
     // Tab 2: Live Inference Feedback History
     private lateinit var tvHistoryStats: TextView
     private lateinit var btnRefreshHistory: Button
+    private lateinit var btnDeleteAllHistory: Button
     private lateinit var tvEmptyHistory: TextView
     private lateinit var rvFeedbackHistory: RecyclerView
     private var historyAdapter: FeedbackHistoryAdapter? = null
@@ -1167,12 +1169,14 @@ class MainActivity : AppCompatActivity() {
         // Tab 1: Survey Validation History Views
         tvSurveyAccStats = findViewById(R.id.tvSurveyAccStats)
         btnRefreshSurveyAcc = findViewById(R.id.btnRefreshSurveyAcc)
+        btnDeleteAllSurveyAcc = findViewById(R.id.btnDeleteAllSurveyAcc)
         tvEmptySurveyAcc = findViewById(R.id.tvEmptySurveyAcc)
         rvSurveyAccHistory = findViewById(R.id.rvSurveyAccHistory)
 
         // Tab 2: Live Inference Feedback History Views
         tvHistoryStats = findViewById(R.id.tvHistoryStats)
         btnRefreshHistory = findViewById(R.id.btnRefreshHistory)
+        btnDeleteAllHistory = findViewById(R.id.btnDeleteAllHistory)
         tvEmptyHistory = findViewById(R.id.tvEmptyHistory)
         rvFeedbackHistory = findViewById(R.id.rvFeedbackHistory)
 
@@ -1217,8 +1221,54 @@ class MainActivity : AppCompatActivity() {
             refreshSurveyAccView()
         }
 
+        btnDeleteAllSurveyAcc.setOnClickListener {
+            val count = surveyCalibAdapter?.itemCount ?: 0
+            if (count == 0) {
+                Toast.makeText(this, "Survey calibration history is already empty!", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Delete All Survey Calibration Records?")
+                .setMessage("Are you sure you want to permanently delete ALL $count survey validation records? This will clear $SURVEY_CALIB_CSV_NAME.")
+                .setPositiveButton("Yes, Delete All") { _, _ ->
+                    val file = File(getExternalFilesDir(null), SURVEY_CALIB_CSV_NAME)
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                    refreshSurveyAccView()
+                    Toast.makeText(this, "All survey calibration records deleted!", Toast.LENGTH_SHORT).show()
+                    log("🗑️ Deleted all survey calibration history ($count records) and cleared $SURVEY_CALIB_CSV_NAME\n")
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
         btnRefreshHistory.setOnClickListener {
             refreshHistoryView()
+        }
+
+        btnDeleteAllHistory.setOnClickListener {
+            val count = historyAdapter?.itemCount ?: 0
+            if (count == 0) {
+                Toast.makeText(this, "Live history is already empty!", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Delete All Live History?")
+                .setMessage("Are you sure you want to permanently delete ALL $count live inference validation records? This will clear $FEEDBACK_CSV_NAME.")
+                .setPositiveButton("Yes, Delete All") { _, _ ->
+                    val file = File(getExternalFilesDir(null), FEEDBACK_CSV_NAME)
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                    refreshHistoryView()
+                    Toast.makeText(this, "All live history records deleted!", Toast.LENGTH_SHORT).show()
+                    log("🗑️ Deleted all live inference validation history ($count records) and cleared $FEEDBACK_CSV_NAME\n")
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         editSpotName = findViewById(R.id.editSpotName)
