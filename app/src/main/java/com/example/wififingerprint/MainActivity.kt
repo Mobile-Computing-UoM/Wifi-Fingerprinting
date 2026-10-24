@@ -467,7 +467,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Displays a full scrollable dialog showing the complete 3D Fuzzy Matrix model.
+     * Displays a full scrollable dialog showing the complete 3D Fuzzy Matrix model
+     * with high-contrast text visible in both Dark and Light mode.
      */
     private fun showFuzzyMatrixDialog() {
         if (!fuzzyMatrixStrategy.isModelLoaded()) {
@@ -476,23 +477,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         val matrixText = fuzzyMatrixStrategy.getFormattedMatrix()
-
-        val scrollView = ScrollView(this).apply {
-            setPadding(32, 24, 32, 24)
-        }
-        val tv = TextView(this).apply {
-            text = matrixText
-            typeface = Typeface.MONOSPACE
-            textSize = 12f
-            setTextColor(Color.DKGRAY)
-        }
-        scrollView.addView(tv)
+        val view = layoutInflater.inflate(R.layout.dialog_matrix_view, null, false)
+        val tvMatrix = view.findViewById<TextView>(R.id.tvMatrixContent)
+        tvMatrix.text = matrixText
 
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("📊 3D Fuzzy Matrix View")
-            .setView(scrollView)
+            .setView(view)
             .setPositiveButton("Close", null)
-            .setNeutralButton("Print to Log") { _, _ ->
+            .setNeutralButton("Print to Terminal") { _, _ ->
                 log("\n" + matrixText + "\n")
             }
             .show()
