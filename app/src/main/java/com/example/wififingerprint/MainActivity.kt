@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvLogs: TextView
     private lateinit var scrollView: ScrollView
     private lateinit var btnSurvey: Button
+    private lateinit var btnStopSurvey: Button
     private lateinit var btnLocate: Button
     private lateinit var btnClearData: Button
     private lateinit var btnSettings: Button
@@ -94,6 +95,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var tvProgressLabel: TextView
     private lateinit var tvProgressText: TextView
+    private var userRequestedStop = false
 
     private lateinit var wifiManager: WifiManager
     private val surveyDatabase = mutableListOf<RawSurveySpot>()
@@ -354,7 +356,7 @@ class MainActivity : AppCompatActivity() {
         if (isSurveying) {
             val spot = editSpotName.text.toString().trim()
             val totalScans = scanSnapshots.size
-            val testScansCount = maxOf(1, (totalScans * testSplitPercent) / 100)
+            val testScansCount = if (totalScans >= 2) maxOf(1, (totalScans * testSplitPercent) / 100) else 0
             val trainScansCount = maxOf(1, totalScans - testScansCount)
 
             val trainSnapshots = scanSnapshots.take(trainScansCount)
@@ -377,7 +379,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             val candidateSpot = RawSurveySpot(spot, trainMeasurements, trainScansCount)
-            val candidateDatabase = surveyDatabase.filter { it.spotLabel != spot } + candidateSpot
+            val candidateDatabase = surveyDatabase.filter { !it.spotLabel.equals(spot, ignoreCase = true) } + candidateSpot
 
             val evalKnnStrategy = KnnStrategy(knnK)
             evalKnnStrategy.buildModel(candidateDatabase)
@@ -395,11 +397,11 @@ class MainActivity : AppCompatActivity() {
                 if (fuzzyRes.predictedSpot == spot) fuzzyCorrect++
             }
 
-            val knnAcc = (knnCorrect.toDouble() / testScansCount) * 100.0
-            val fuzzyAcc = (fuzzyCorrect.toDouble() / testScansCount) * 100.0
+            val knnAcc = if (testScansCount > 0) (knnCorrect.toDouble() / testScansCount) * 100.0 else 100.0
+            val fuzzyAcc = if (testScansCount > 0) (fuzzyCorrect.toDouble() / testScansCount) * 100.0 else 100.0
             val benchmarkAcc = if (autoCalibStrategy == "FUZZY_MATRIX") fuzzyAcc else knnAcc
 
-            // Auto-Calibration condition check
+            // Auto-Calibration condition check (skipped if user explicitly requested stop)
             val extraScansDone = activeTargetSamples - surveySampleCount
             val canExtend = if (autoCalibMaxExtraScans > 0) {
                 extraScansDone < autoCalibMaxExtraScans
@@ -407,7 +409,7 @@ class MainActivity : AppCompatActivity() {
                 true // 0 = Unlimited!
             }
 
-            if (isAutoCalibrationEnabled && benchmarkAcc < autoCalibTarget && canExtend) {
+            if (isAutoCalibrationEnabled && !userRequestedStop && benchmarkAcc < autoCalibTarget && canExtend) {
                 val nextTarget = activeTargetSamples + 5
                 activeTargetSamples = nextTarget
                 val stratName = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy Matrix" else "Centroid k-NN"
@@ -421,8 +423,9 @@ class MainActivity : AppCompatActivity() {
                 return
             }
 
-            // Target met or Auto-Calib finished: finalize survey
-            updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Survey Completed: '$spot'")
+            // Target met, Auto-Calib finished, or stopped by user: finalize survey
+            val completionMsg = if (userRequestedStop) "Survey Stopped: '$spot'" else "Survey Completed: '$spot'"
+            updateProgressDisplay(activeTargetSamples, activeTargetSamples, completionMsg)
             log("\n--- Survey Results for '$spot' ($activeTargetSamples iterations) ---\n")
             for (m in processedMeasurements) {
                 log("• ${m.ssid} (${m.bssid}): Avg ${m.avgRssi} dBm (${m.rawReadings.size} samples)\n")
@@ -433,7 +436,7 @@ class MainActivity : AppCompatActivity() {
                 RawApMeasurement(it.bssid, it.ssid, it.rawReadings, it.avgRssi)
             }
             val spotRecord = RawSurveySpot(spot, rawMeasurements, activeTargetSamples)
-            val existingIdx = surveyDatabase.indexOfFirst { it.spotLabel == spot }
+            val existingIdx = surveyDatabase.indexOfFirst { it.spotLabel.equals(spot, ignoreCase = true) }
             if (existingIdx >= 0) {
                 surveyDatabase[existingIdx] = spotRecord
             } else {
@@ -446,7 +449,9 @@ class MainActivity : AppCompatActivity() {
             // Save to CSV file with all raw samples
             saveFingerprintToCsv(spot, processedMeasurements)
 
-            val autoCalibStatus = if (isAutoCalibrationEnabled) {
+            val autoCalibStatus = if (userRequestedStop) {
+                "Stopped Early by User ($activeTargetSamples scans)"
+            } else if (isAutoCalibrationEnabled) {
                 if (benchmarkAcc >= autoCalibTarget) {
                     "Target Met (${autoCalibTarget}%)"
                 } else if (autoCalibMaxExtraScans > 0 && extraScansDone >= autoCalibMaxExtraScans) {
@@ -510,6 +515,8 @@ class MainActivity : AppCompatActivity() {
         btnClearData.isEnabled = true
         btnSettings.isEnabled = true
         btnViewMatrix.isEnabled = true
+        btnStopSurvey.visibility = View.GONE
+        userRequestedStop = false
         releaseScreenWakeLock()
     }
 
@@ -959,17 +966,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Save fingerprint entry into wifi_fingerprints.csv including ALL raw measurements
+    // Replaces previous lines for this spot to keep CSV clean when continuing survey
     private fun saveFingerprintToCsv(spot: String, measurements: List<ApMeasurement>) {
         try {
             val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
-            val isNewFile = !file.exists()
-            val writer = FileWriter(file, true) // append mode
-            val timestamp = System.currentTimeMillis()
+            val header = "timestamp,spot_label,bssid,ssid,sample_count,samples,avg_rssi"
+            val remainingLines = if (file.exists()) {
+                file.readLines().filter { line ->
+                    if (line.isBlank() || line.startsWith("timestamp")) return@filter false
+                    val parts = line.split(",")
+                    val lineSpot = parts.getOrNull(1)?.trim() ?: ""
+                    !lineSpot.equals(spot, ignoreCase = true)
+                }
+            } else emptyList()
 
-            if (isNewFile) {
-                writer.append("timestamp,spot_label,bssid,ssid,sample_count,samples,avg_rssi\n")
+            val writer = FileWriter(file, false) // rewrite with non-matching lines + updated spot lines
+            writer.append("$header\n")
+            for (line in remainingLines) {
+                writer.append("$line\n")
             }
 
+            val timestamp = System.currentTimeMillis()
             for (m in measurements) {
                 val cleanSsid = m.ssid.replace(",", " ")
                 val rawStr = "\"[" + m.rawReadings.joinToString(";") + "]\""
@@ -1298,6 +1315,7 @@ class MainActivity : AppCompatActivity() {
         scrollView = findViewById(R.id.scrollView)
         tvLogs = findViewById(R.id.tvLogs)
         btnSurvey = findViewById(R.id.btnSurvey)
+        btnStopSurvey = findViewById(R.id.btnStopSurvey)
         btnLocate = findViewById(R.id.btnLocate)
         btnClearData = findViewById(R.id.btnClearData)
         btnSettings = findViewById(R.id.btnSettings)
@@ -1335,39 +1353,111 @@ class MainActivity : AppCompatActivity() {
             showFuzzyMatrixDialog()
         }
 
-        // 1. Survey Button: Record a labelled spot
+        // Stop Survey Button: Stops current survey session immediately and persists data collected so far
+        btnStopSurvey.setOnClickListener {
+            if (!isScanningActive || !isSurveying) return@setOnClickListener
+
+            val spot = editSpotName.text.toString().trim()
+            log("\n⏹️ User clicked STOP! Stopping survey for '$spot' at $currentSampleCount scans...\n")
+            userRequestedStop = true
+            scanHandler.removeCallbacksAndMessages(null)
+
+            if (sampleBuffer.isEmpty() || currentSampleCount == 0) {
+                log("⚠️ Survey stopped before any samples were captured.\n")
+                isScanningActive = false
+                btnSurvey.isEnabled = true
+                btnLocate.isEnabled = true
+                btnClearData.isEnabled = true
+                btnSettings.isEnabled = true
+                btnViewMatrix.isEnabled = true
+                btnStopSurvey.visibility = View.GONE
+                userRequestedStop = false
+                releaseScreenWakeLock()
+                return@setOnClickListener
+            }
+
+            activeTargetSamples = currentSampleCount
+            processAndSaveAveragedFingerprint()
+        }
+
+        // 1. Survey Button: Record a labelled spot (or continue from existing survey if spot already exists)
         btnSurvey.setOnClickListener {
             if (isScanningActive) {
                 log("\n⚠️ A scan is already in progress, please wait...\n")
                 return@setOnClickListener
             }
 
-            val spot = editSpotName.text.toString().trim()
-            if (spot.isEmpty()) {
+            val spotInput = editSpotName.text.toString().trim()
+            if (spotInput.isEmpty()) {
                 log("\n⚠️ Please enter a Spot Name (e.g. 'Spot 1') first!\n")
                 return@setOnClickListener
             }
 
-            activeTargetSamples = surveySampleCount
+            val existingSpot = surveyDatabase.find { it.spotLabel.equals(spotInput, ignoreCase = true) }
+            val spot = existingSpot?.spotLabel ?: spotInput
+
+            userRequestedStop = false
             isScanningActive = true
             btnSurvey.isEnabled = false
             btnLocate.isEnabled = false
             btnClearData.isEnabled = false
             btnSettings.isEnabled = false
             btnViewMatrix.isEnabled = false
+            btnStopSurvey.visibility = View.VISIBLE
+            btnStopSurvey.isEnabled = true
 
             isSurveying = true
             acquireScreenWakeLock()
             sampleBuffer.clear()
             bssidToSsidMap.clear()
             scanSnapshots.clear()
-            currentSampleCount = 0
 
-            updateProgressDisplay(0, activeTargetSamples, "Surveying '$spot'...")
+            if (existingSpot != null) {
+                // Populate previous samples to continue seamlessly from old surveying
+                for (m in existingSpot.measurements) {
+                    bssidToSsidMap[m.bssid] = m.ssid
+                    sampleBuffer[m.bssid] = m.rawReadings.toMutableList()
+                }
 
-            log("\n========================================\n")
-            log("Survey started for '$spot' ($activeTargetSamples iterations)...\n")
-            log("========================================\n")
+                val priorScans = existingSpot.totalScans.coerceAtLeast(
+                    existingSpot.measurements.maxOfOrNull { it.rawReadings.size } ?: 0
+                )
+
+                // Reconstruct previous scan snapshots so train/test split covers the entire series
+                for (i in 0 until priorScans) {
+                    val snapshot = mutableMapOf<String, Int>()
+                    for (m in existingSpot.measurements) {
+                        if (i < m.rawReadings.size) {
+                            snapshot[m.bssid] = m.rawReadings[i]
+                        }
+                    }
+                    scanSnapshots.add(snapshot)
+                }
+
+                currentSampleCount = priorScans
+                activeTargetSamples = if (priorScans < surveySampleCount) {
+                    surveySampleCount
+                } else {
+                    priorScans + surveySampleCount
+                }
+
+                updateProgressDisplay(currentSampleCount, activeTargetSamples, "Continuing '$spot'...")
+
+                log("\n========================================\n")
+                log("🔄 Continuing survey for existing spot '$spot'\n")
+                log("• Prior Scans: $priorScans\n")
+                log("• Target Total: $activeTargetSamples scans (+${activeTargetSamples - priorScans} more)\n")
+                log("========================================\n")
+            } else {
+                currentSampleCount = 0
+                activeTargetSamples = surveySampleCount
+
+                updateProgressDisplay(0, activeTargetSamples, "Surveying '$spot'...")
+
+                log("\n========================================\n")
+                log("Survey started for new spot '$spot' ($activeTargetSamples iterations)...\n")
+                log("========================================\n")
+            }
 
             triggerWifiScan()
         }
@@ -1383,6 +1473,8 @@ class MainActivity : AppCompatActivity() {
                 log("\n⚠️ No spots saved! Survey at least one spot first.\n")
                 return@setOnClickListener
             }
+
+            btnStopSurvey.visibility = View.GONE
 
             activeTargetSamples = locateSampleCount
             isScanningActive = true
