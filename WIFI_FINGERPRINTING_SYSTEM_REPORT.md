@@ -29,25 +29,24 @@ Satellite GNSS/GPS performs poorly indoors because reinforced concrete structure
 
 ---
 
-## 3. Proposed System Architecture
+## 3. Proposed Mobile System Architecture
 
-Our experimental platform consists of two distinct components designed to separate mobile positioning from raw physical radio profiling:
+The indoor positioning system is implemented as a self-contained native Android mobile application operating entirely on-device without external cloud infrastructure or secondary attached hardware. The system architecture is organized into three modular layers:
 
-1. **Self-Contained Mobile Positioning System (Android Smartphone):**
-   - The indoor positioning system runs entirely on the smartphone without external servers or attached hardware.
-   - **Offline Survey Mode:** Collects $N$ consecutive Wi-Fi scans at each labelled reference spot with a real-time progress bar, holding a dynamic wake lock only during active surveying so the radio and CPU do not sleep, and persisting all raw scan measurements locally on the device.
-   - **Online Locate Mode:** Matches live Wi-Fi scans against the on-device reference database using $k$-NN and Distance-Weighted $k$-NN (WKNN) to output ranked candidate spots, confidence scores, and distance error estimates.
-2. **Independent Standalone RF Study (ESP32-C3 Microcontroller):**
-   - Completely separate from the smartphone application, we conduct an independent physical radio measurement study using a standalone **ESP32-C3 microcontroller**.
-   - This experiment is designed specifically to observe raw physical Wi-Fi signal reception in the air while **excluding Android OS constraints** (such as background scan throttling, power-saving sleep cycles, and vendor baseband filtering).
-   - Streaming high-density unthrottled RSSI measurements ($N \ge 1{,}500$ to $10{,}000$ samples) over USB serial provides a clean physical benchmark to examine core RF propagation behaviour (Line-of-Sight vs. Non-Line-of-Sight multipath fading, $20\text{ MHz}$ vs. $40\text{ MHz}$ channel bandwidth effects, and sample mean convergence).
-3. **Offline Statistical & Evaluation Pipeline:**
-   - Processes exported survey and test logs from the smartphones alongside data from the standalone ESP32-C3 experiment to compute sample mean ($\mu$), median, standard deviation ($\sigma$), empirical confidence bands, distribution histograms, and localization accuracy/error metrics.
+1. **Presentation & UI Layer:**
+   - **Offline Survey Mode View:** Allows the surveyor to select reference spots ($L_1, L_2, \dots$), configure calibration sample size $N$ ($10\text{--}50$), monitor a real-time progress bar, and manage a dynamic wake lock to prevent the device CPU/radio from sleeping during collection sweeps.
+   - **Online Locate Mode View:** Supports on-demand and continuous localization, displaying the top predicted spot, normalized confidence score (%), and physical distance error in metres relative to ground truth.
+   - **Metric Evaluation Display & Controls:** Allows toggling between standard majority $k$-NN and Distance-Weighted $k$-NN (WKNN) and selecting $k \in \{1, 3, 5\}$.
 
-### Android Platform APIs, Permissions & Privacy
-- **Active Wi-Fi Scanning & Broadcast Filtering:** Uses Android's `WifiManager` APIs (`startScan()` and `getScanResults()`) together with a `BroadcastReceiver` listening for `SCAN_RESULTS_AVAILABLE_ACTION` (`EXTRA_RESULTS_UPDATED`) so cached OS callbacks are rejected and every recorded iteration represents a fresh physical radio sweep.
-- **Permissions & Location Services Requirement:** Requests `ACCESS_FINE_LOCATION` (and `NEARBY_WIFI_DEVICES` on Android 13+) and verifies that system Location Services are enabled. Android mandates Location Services to be active before delivering Wi-Fi scan results because visible BSSIDs can be used to infer a user's physical location (this is an OS privacy gate on Wi-Fi APIs, not a GPS satellite fix).
-- **Privacy Compliance:** In accordance with the assignment guidelines, our primary experiments track our controlled project APs, while any third-party/neighbouring BSSIDs encountered are anonymised via one-way SHA-256 hashing with their SSIDs discarded.
+2. **Radio HAL & Android System Services Layer:**
+   - **Active Scanning & Broadcast Filtering:** Invokes Android's `WifiManager` APIs (`startScan()`, `getScanResults()`) with a `BroadcastReceiver` listening for `SCAN_RESULTS_AVAILABLE_ACTION` and validating `EXTRA_RESULTS_UPDATED` so cached callbacks are discarded and every recorded sample is a fresh physical radio sweep.
+   - **Runtime Permissions & Security Gates:** Enforces `ACCESS_FINE_LOCATION` (and `NEARBY_WIFI_DEVICES` on Android 13+) and validates active system Location Services (required by Android as a location privacy gate before releasing Wi-Fi scan results).
+   - **Privacy Compliance:** Controlled project APs are mapped directly, while any external third-party BSSIDs encountered in the environment are hashed using one-way SHA-256 with their SSIDs stripped.
+
+3. **On-Device Positioning & Inference Engine:**
+   - **Calibration Radio Map Store:** In-memory and local SQLite/CSV persistence of reference fingerprint vectors $\mathbf{r}_j$ recorded during survey runs.
+   - **Overlap-Penalized RMSE Distance Metric ($D_{\text{pen}}$):** Evaluates mutual visible AP difference while applying an overlap penalty for missing APs to prevent distant single-AP false matches.
+   - **$k$-NN & Distance-Weighted $k$-NN (WKNN) Voting:** Computes inverse-distance candidate weights $w_m$ to determine winning spot predictions and interpolate 2D metric coordinates $\hat{\vec{x}}$.
 
 <!--
 ============================================================================
@@ -62,12 +61,15 @@ over (Spot, AP, RSSI) with explicit Not-Seen (NS) probability mass and neighbour
 
 ## 4. Experiment Plan
 
-### 4.1 High-Level Spatial Setup & Ground Truth
+### 4.1 Physical RF Baseline Study (ESP32 Characterization)
+Before evaluating mobile localization algorithms, we conduct a baseline radio characterization experiment using an unthrottled ESP32 microcontroller. The purpose of this preliminary study is to observe the pure physical behavior of ambient 802.11 RSSI in the air **without the intervention of mobile OS behaviors** (such as Android background scan throttling, power-saving duty cycling, and driver RSSI filtering). By streaming dense RSSI series ($N \ge 1{,}500$ to $10{,}000$ scans) over USB serial across direct Line-of-Sight (LOS) and obstacle-attenuated Non-Line-of-Sight (NLOS) paths, as well as different channel bandwidths ($20\text{ MHz}$ vs. $40\text{ MHz}$), this preliminary experiment provides an unadulterated ground-truth RF reference to explain physical multipath fading and verify sample mean convergence before analyzing smartphone data.
+
+### 4.2 High-Level Spatial Setup & Ground Truth
 To keep our experimental methodology general and applicable to any indoor building environment:
 - We will establish **at least 8 discrete indoor reference spots** ($L_1, L_2, \dots, L_M$, with $M \ge 8$) spaced approximately **$2.0\text{ m}$ apart** along an indoor corridor and adjacent rooms.
 - Each reference spot $L_i$ will be physically measured using a tape measure relative to a chosen reference origin $(0.0, 0.0)\text{ m}$ to record its ground-truth 2D coordinates $(x_i, y_i)$ in metres. This enables us to evaluate both discrete spot classification accuracy (%) and physical localization error in metres.
 
-### 4.2 Controlled Experimental Factors & Localization Methodology
+### 4.3 Controlled Experimental Factors & Localization Methodology
 Following the assignment brief, we plan to systematically conduct experiments across four key factors:
 
 1. **Penalized Distance Metric & Distance-Weighted $k$-NN (WKNN) ($k \in \{1, 3, 5\}$):**
@@ -88,7 +90,7 @@ Following the assignment brief, we plan to systematically conduct experiments ac
    - To test whether a fingerprint database surveyed on one device can be used directly on another device without re-surveying, we will record the offline reference survey on **Phone A (Xiaomi Redmi Note 14 5G)** and transfer that database onto **Phone B (Xiaomi Redmi Note 11)**.
    - Both phones will then perform independent online localization trials across the surveyed reference spots to compare **Same-Device Accuracy** vs. **Cross-Device Accuracy** and analyze inter-device RSSI offsets.
 
-### 4.3 Evaluation Metrics, Repetitions & Test Hardware
+### 4.4 Evaluation Metrics, Repetitions & Test Hardware
 - **Metrics to be Reported:**
   1. **Fraction of Correct Spots (%):** Percentage of independent test queries where the predicted spot matches the true spot $L_i$.
   2. **Average Localization Error in Metres:** Mean and standard deviation of $\|\vec{x}_{\text{true}} - \hat{\vec{x}}\|_2$ (in metres) across all test trials.
