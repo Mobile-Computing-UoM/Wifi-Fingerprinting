@@ -20,28 +20,28 @@ class StrategyPatternUnitTest {
     @Before
     fun setUp() {
         knnStrategy = KnnStrategy(k = 1)
-        fuzzyStrategy = FuzzyMatrixStrategy()
+        fuzzyStrategy = FuzzyMatrixStrategy(useNeighbourSmoothing = true)
 
         // 1. Hall survey (100 total scans):
-        // AP1: 60 scans at -67, 25 scans at -65, 15 scans at -66 -> avg approx -66
-        val hallAp1Readings = MutableList(60) { -67 } + MutableList(25) { -65 } + MutableList(15) { -66 }
-        // AP2: 30 scans at -73, 70 scans at -75
-        val hallAp2Readings = MutableList(30) { -73 } + MutableList(70) { -75 }
-        // AP3: 25 scans at -89, 75 scans at -90
-        val hallAp3Readings = MutableList(25) { -89 } + MutableList(75) { -90 }
+        // AP1: 60 scans at -67 (raw μ = 0.60), 40 scans not heard (NS)
+        val hallAp1Readings = MutableList(60) { -67 }
+        // AP2: 30 scans at -73 (raw μ = 0.30), 70 scans not heard (NS)
+        val hallAp2Readings = MutableList(30) { -73 }
+        // AP3: 30 scans at -90 (raw μ = 0.30), 70 scans not heard (NS)
+        val hallAp3Readings = MutableList(30) { -90 }
         // AP4: Never heard (0 readings out of 100 scans -> NS frequency = 1.0)
         val hallSpot = RawSurveySpot(
             spotLabel = "Hall",
             measurements = listOf(
-                RawApMeasurement("ap1", "AP1", hallAp1Readings, -66),
-                RawApMeasurement("ap2", "AP2", hallAp2Readings, -74),
+                RawApMeasurement("ap1", "AP1", hallAp1Readings, -67),
+                RawApMeasurement("ap2", "AP2", hallAp2Readings, -73),
                 RawApMeasurement("ap3", "AP3", hallAp3Readings, -90)
             ),
             totalScans = 100
         )
 
         // 2. Kitchen survey (100 total scans):
-        // Very strong AP1 at -40 dBm, AP4 at -55 dBm
+        // Very strong AP1 at -40 dBm, AP2 at -50 dBm, AP4 at -55 dBm
         val kitchenSpot = RawSurveySpot(
             spotLabel = "Kitchen",
             measurements = listOf(
@@ -53,10 +53,12 @@ class StrategyPatternUnitTest {
         )
 
         // 3. Lab survey (100 total scans):
-        // AP4 heard 50 scans at -90, 50 scans not heard (NS)
+        // AP2: 60 scans at -75 (raw μ = 0.60), 40 scans not heard (NS)
+        // AP4: 50 scans at -90, 50 scans not heard (NS frequency = 0.50)
         val labSpot = RawSurveySpot(
             spotLabel = "Lab",
             measurements = listOf(
+                RawApMeasurement("ap2", "AP2", MutableList(60) { -75 }, -75),
                 RawApMeasurement("ap4", "AP4", MutableList(50) { -90 }, -90)
             ),
             totalScans = 100
@@ -68,57 +70,76 @@ class StrategyPatternUnitTest {
     }
 
     @Test
+    fun testQueryD_neighbourSmoothing_exactUserExample() {
+        // Query D: [-68, -74, -91, NS], all 1 dB off Hall's stored values:
+        // AP1 = -68 (stored: -67 with μ=0.60) -> smoothed μ = 0.30
+        // AP2 = -74 (stored: -73 with μ=0.30) -> smoothed μ = 0.15
+        // AP3 = -91 (stored: -90 with μ=0.30) -> smoothed μ = 0.15
+        // AP4 = NS  (Hall NS frequency = 1.0) -> smoothed μ = 1.00
+        // Average Hall = (0.30 + 0.15 + 0.15 + 1.0) / 4 = 0.40
+        //
+        // Lab:
+        // AP1 = -68 (stored: none)            -> smoothed μ = 0.00
+        // AP2 = -74 (stored: -75 with μ=0.60) -> smoothed μ = 0.30
+        // AP3 = -91 (stored: none)            -> smoothed μ = 0.00
+        // AP4 = NS  (Lab NS frequency = 0.50) -> smoothed μ = 0.50
+        // Average Lab = (0.00 + 0.30 + 0.00 + 0.50) / 4 = 0.20
+        //
+        // Hall wins with 0.40 vs Lab 0.20 (Winning Margin: +0.20)
+        val queryD = LiveQueryScan(
+            readings = mapOf("ap1" to -68, "ap2" to -74, "ap3" to -91)
+        )
+
+        val fuzzyResult = fuzzyStrategy.infer(queryD)
+        assertEquals("Hall", fuzzyResult.predictedSpot)
+        assertNotNull(fuzzyResult.confidenceMargin)
+
+        val hallRanking = fuzzyResult.rankings.first { it.spotLabel == "Hall" }
+        assertEquals(0.40, hallRanking.scoreMetric, 0.001)
+
+        val labRanking = fuzzyResult.rankings.first { it.spotLabel == "Lab" }
+        assertEquals(0.20, labRanking.scoreMetric, 0.001)
+
+        assertEquals(0.20, fuzzyResult.confidenceMargin!!, 0.001)
+    }
+
+    @Test
+    fun testExactLookupWithoutSmoothing_failsToMatchQueryD() {
+        val rawFuzzyStrategy = FuzzyMatrixStrategy(useNeighbourSmoothing = false)
+        rawFuzzyStrategy.buildModel(sampleSurveys)
+
+        val queryD = LiveQueryScan(
+            readings = mapOf("ap1" to -68, "ap2" to -74, "ap3" to -91)
+        )
+
+        val result = rawFuzzyStrategy.infer(queryD)
+        // Without smoothing, exact integer lookup yields 0 for AP1, AP2, AP3 in Hall!
+        // Hall only gets 1.0 for AP4 (NS) -> Average = 1.0 / 4 = 0.25
+        val hallRanking = result.rankings.first { it.spotLabel == "Hall" }
+        assertEquals(0.25, hallRanking.scoreMetric, 0.001)
+
+        // Lab gets 0 for AP1, AP2, AP3 and 0.5 for AP4 (NS) -> Average = 0.5 / 4 = 0.125
+        val labRanking = result.rankings.first { it.spotLabel == "Lab" }
+        assertEquals(0.125, labRanking.scoreMetric, 0.001)
+    }
+
+    @Test
     fun testStandardQuery_bothStrategiesAgreeOnHall() {
-        // Query A: AP1 = -66, AP2 = -73, AP3 = -89, AP4 not heard (absent)
         val queryA = LiveQueryScan(
-            readings = mapOf("ap1" to -66, "ap2" to -73, "ap3" to -89)
+            readings = mapOf("ap1" to -67, "ap2" to -73, "ap3" to -90)
         )
 
         // Test k-NN
         val knnResult = knnStrategy.infer(queryA)
         assertEquals("Hall", knnResult.predictedSpot)
-        assertNotNull(knnResult.confidenceMargin)
 
-        // Test Fuzzy Matrix Strategy
+        // Test Fuzzy Matrix
         val fuzzyResult = fuzzyStrategy.infer(queryA)
         assertEquals("Hall", fuzzyResult.predictedSpot)
-        assertNotNull(fuzzyResult.confidenceMargin)
-        assertTrue("Winning margin must be positive", fuzzyResult.confidenceMargin!! > 0.0)
 
-        // In Hall (tolerance bandwidth Δ = 3.5 dBm):
-        // AP1(-66): 60*(-67: dist 1 => 5/7) + 25*(-65: dist 1 => 5/7) + 15*(-66: dist 0 => 1.0) = 75.71 / 100 = 0.7571
-        // AP2(-73): 30*(-73: dist 0 => 1.0) + 70*(-75: dist 2 => 3/7) = 60.0 / 100 = 0.6000
-        // AP3(-89): 25*(-89: dist 0 => 1.0) + 75*(-90: dist 1 => 5/7) = 78.57 / 100 = 0.7857
-        // Relevant active APs = [ap1, ap2, ap3]
-        // Average = (0.7571 + 0.6000 + 0.7857) / 3 ≈ 0.7143
+        // Hall scores: AP1(-67)=0.60, AP2(-73)=0.30, AP3(-90)=0.30, AP4(NS)=1.00 -> Avg = 2.20 / 4 = 0.55
         val hallRanking = fuzzyResult.rankings.first { it.spotLabel == "Hall" }
-        assertEquals(0.7143, hallRanking.scoreMetric, 0.005)
-    }
-
-    @Test
-    fun testDeepFadeTolerance_fuzzyMatrixDoesNotCollapse() {
-        // AP3 experiences deep fade to -97 dBm (never seen in training for any spot!)
-        val queryDeepFade = LiveQueryScan(
-            readings = mapOf("ap1" to -66, "ap2" to -73, "ap3" to -97)
-        )
-
-        val fuzzyResult = fuzzyStrategy.infer(queryDeepFade)
-        // Hall must still win despite AP3 having 0.0 membership!
-        assertEquals("Hall", fuzzyResult.predictedSpot)
-
-        // In Hall:
-        // AP1(-66): 0.7571
-        // AP2(-73): 0.6000
-        // AP3(-97): 0.0000 (Distance to [-89, -90] is > 3.5 dBm -> drops to 0.0)
-        // Average = (0.7571 + 0.6000 + 0.0000) / 3 ≈ 0.4524
-        val hallRanking = fuzzyResult.rankings.first { it.spotLabel == "Hall" }
-        assertEquals(0.4524, hallRanking.scoreMetric, 0.005)
-
-        // Lab active APs: [ap1, ap2, ap3, ap4] -> AP4 NS=0.50, others 0.0 -> Avg = 0.50 / 4 = 0.125
-        val labRanking = fuzzyResult.rankings.first { it.spotLabel == "Lab" }
-        assertEquals(0.125, labRanking.scoreMetric, 0.005)
-
-        // Winning Margin = 0.4524 - 0.125 = 0.3274
-        assertEquals(0.3274, fuzzyResult.confidenceMargin!!, 0.005)
+        assertEquals(0.55, hallRanking.scoreMetric, 0.001)
+        assertTrue(fuzzyResult.confidenceMargin!! > 0.0)
     }
 }

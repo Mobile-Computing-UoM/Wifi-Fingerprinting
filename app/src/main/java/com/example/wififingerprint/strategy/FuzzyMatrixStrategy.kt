@@ -1,67 +1,83 @@
 package com.example.wififingerprint.strategy
 
-import kotlin.math.abs
+import kotlin.math.max
 
 /**
- * Non-parametric Fuzzy Distribution cell for a single (Spot, AP) pair.
- * Preserves the empirical distribution of surveyed RSSI samples directly without
- * collapsing them into a parametric mean (Gaussian), thereby retaining empirical
- * multimodality, skewness, and multipath characteristics.
+ * Discrete Fuzzy Distribution cell for a single (Spot, AP) pair.
+ * Encapsulates the discrete empirical frequency distribution over RSSI dBm values
+ * and the explicit Not Seen (NS) condition.
  *
- * Each surveyed reading contributes a triangular fuzzy membership kernel:
- *   K(v, r_k) = max(0.0, 1.0 - |v - r_k| / Δ)
- *
- * Bandwidth Δ is the fuzzy tolerance width (default 3.5 dBm, matching mobile RF noise).
+ * Supports Neighbour Smoothing:
+ * If a reading falls 1 dB off a stored value, exact lookup scores 0.
+ * Smoothing lets a stored value pass 50% of its membership to its ±1 dB neighbours
+ * and 25% to its ±2 dB neighbours (taking the maximum).
  */
 data class DiscreteFuzzyCell(
     val bssid: String,
-    val rawSamples: List<Int>,
-    val totalSurveyScans: Int,
-    val notSeenFrequency: Double,
-    val toleranceBandwidth: Double = 3.5
+    val rssiFrequencies: Map<Int, Double>,
+    val notSeenFrequency: Double
 ) {
     /**
-     * Compute empirical membership grade μ(v) ∈ [0.0, 1.0].
-     * @param observedRssi The live measured RSSI integer, or null if the AP was not heard (NS).
+     * Look up exact raw discrete membership grade μ(v) in [0.0, 1.0].
+     * Direct exact integer lookup without smoothing.
      */
-    fun getMembership(observedRssi: Int?): Double {
+    fun getRawMembership(observedRssi: Int?): Double {
+        return if (observedRssi == null) {
+            notSeenFrequency
+        } else {
+            rssiFrequencies[observedRssi] ?: 0.0
+        }
+    }
+
+    /**
+     * Compute membership grade with Neighbour Smoothing:
+     * - Exact match: 100% of stored raw membership
+     * - ±1 dB neighbour: 50% of neighbour's stored membership
+     * - ±2 dB neighbour: 25% of neighbour's stored membership
+     * Takes the maximum across exact, ±1 dB, and ±2 dB candidates:
+     *   μ_smoothed(v) = max(μ(v), 0.50 * max(μ(v-1), μ(v+1)), 0.25 * max(μ(v-2), μ(v+2)))
+     */
+    fun getSmoothedMembership(observedRssi: Int?): Double {
         if (observedRssi == null) {
             return notSeenFrequency
         }
-        if (rawSamples.isEmpty()) {
-            return 0.0
-        }
-        val totalScans = if (totalSurveyScans > 0) totalSurveyScans else rawSamples.size
-        var kernelSum = 0.0
-        for (r in rawSamples) {
-            val dist = abs(observedRssi - r)
-            if (dist < toleranceBandwidth) {
-                kernelSum += (1.0 - dist / toleranceBandwidth)
-            }
-        }
-        return (kernelSum / totalScans).coerceIn(0.0, 1.0)
+        val exact = rssiFrequencies[observedRssi] ?: 0.0
+        val dist1 = max(
+            rssiFrequencies[observedRssi - 1] ?: 0.0,
+            rssiFrequencies[observedRssi + 1] ?: 0.0
+        ) * 0.50
+        val dist2 = max(
+            rssiFrequencies[observedRssi - 2] ?: 0.0,
+            rssiFrequencies[observedRssi + 2] ?: 0.0
+        ) * 0.25
+
+        return max(exact, max(dist1, dist2))
     }
+
+    /**
+     * Default membership lookup (uses Neighbour Smoothing).
+     */
+    fun getMembership(observedRssi: Int?): Double = getSmoothedMembership(observedRssi)
 }
 
 /**
- * Strategy 2: Non-Parametric Empirical Fuzzy Distribution with Multi-AP Fusion.
+ * Strategy 2: Discrete Fuzzy 3D Matrix with Neighbour Smoothing.
  *
  * Spans 3 Dimensions:
  * - Dimension 1: Candidate Spatial Spots (S)
  * - Dimension 2: AP BSSIDs (A)
- * - Dimension 3: Empirical Signal Distributions (v in dBm or NS)
+ * - Dimension 3: Signal Values (v in dBm or NS)
  *
- * Unlike parametric Gaussian methods (which collapse samples to a mean and standard deviation,
- * effectively acting as a k-NN Euclidean distance surrogate), this strategy evaluates live readings
- * directly against the non-parametric empirical sample set using continuous fuzzy membership kernels.
- *
- * It prevents the "discrete 0.0 cliff" when integer values shift by 1 dBm, while preserving
- * empirical multimodal peaks caused by multipath fading.
+ * Resolves the discrete 0.0 cliff via Neighbour Smoothing:
+ * - Passes 50% membership to ±1 dB neighbours
+ * - Passes 25% membership to ±2 dB neighbours (taking max)
+ * Preserves the true non-parametric empirical shape, bimodal peaks, and skewness
+ * without collapsing data into an artificial unimodal Gaussian mean.
  */
 class FuzzyMatrixStrategy(
-    private val toleranceBandwidth: Double = 3.5
+    val useNeighbourSmoothing: Boolean = true
 ) : LocalizationStrategy {
-    override val name: String = "Strategy 2: Non-Parametric Fuzzy 3D Matrix"
+    override val name: String = "Strategy 2: Fuzzy 3D Matrix (Neighbour Smoothing)"
     override val shortCode: String = "FuzzyMatrix"
 
     // Set of all distinct AP BSSIDs known across all survey locations
@@ -89,7 +105,7 @@ class FuzzyMatrixStrategy(
             }
         }
 
-        // 2. Build non-parametric empirical fuzzy cells for every (Spot, AP) combination
+        // 2. Build the discrete frequency cells for every (Spot, AP) combination
         for (spot in surveys) {
             val spotMap = mutableMapOf<String, DiscreteFuzzyCell>()
             val totalScans = if (spot.totalScans > 0) spot.totalScans else 1
@@ -101,26 +117,19 @@ class FuzzyMatrixStrategy(
                     val raw = measurement.rawReadings
                     val heardCount = raw.size
 
+                    // Compute empirical PMF for each observed discrete dBm integer
+                    val freqMap = raw.groupingBy { it }
+                        .eachCount()
+                        .mapValues { (_, count) -> count.toDouble() / totalScans }
+
                     // Not Seen (NS) frequency: fraction of total scans where this AP was not heard
                     val missingCount = (totalScans - heardCount).coerceAtLeast(0)
                     val nsFreq = missingCount.toDouble() / totalScans
 
-                    spotMap[bssid] = DiscreteFuzzyCell(
-                        bssid = bssid,
-                        rawSamples = raw,
-                        totalSurveyScans = totalScans,
-                        notSeenFrequency = nsFreq,
-                        toleranceBandwidth = toleranceBandwidth
-                    )
+                    spotMap[bssid] = DiscreteFuzzyCell(bssid, freqMap, nsFreq)
                 } else {
-                    // AP was never seen at this spot during survey: μ(NS) = 1.0, any observed dBm = 0.0
-                    spotMap[bssid] = DiscreteFuzzyCell(
-                        bssid = bssid,
-                        rawSamples = emptyList(),
-                        totalSurveyScans = totalScans,
-                        notSeenFrequency = 1.0,
-                        toleranceBandwidth = toleranceBandwidth
-                    )
+                    // AP was never seen at this spot during the survey: μ(NS) = 1.0, everything else = 0.0
+                    spotMap[bssid] = DiscreteFuzzyCell(bssid, emptyMap(), 1.0)
                 }
             }
             matrix[spot.spotLabel] = spotMap
@@ -140,10 +149,11 @@ class FuzzyMatrixStrategy(
 
         val log = StringBuilder()
         log.append("\n========================================\n")
-        log.append(" [$shortCode] Non-Parametric Fuzzy Inference\n")
+        log.append(" [$shortCode] Fuzzy Neighbour-Smoothed Inference\n")
         log.append("========================================\n")
-        log.append("Live query heard ${query.readings.size} APs against ${matrix.size} candidate spots (Δ = $toleranceBandwidth dBm):\n\n")
+        log.append("Evaluating query against ${matrix.size} spots across ${allKnownAps.size} total known AP dimensions:\n\n")
 
+        val totalAps = allKnownAps.size
         // Triple(SpotLabel, AverageMembership, Details)
         val spotEvaluations = mutableListOf<Triple<String, Double, String>>()
 
@@ -151,25 +161,24 @@ class FuzzyMatrixStrategy(
             var sumMembership = 0.0
             val apDetails = StringBuilder()
 
-            // Filter relevant APs: evaluate APs that were either heard in the query OR heard at this candidate spot.
-            // This prevents building-wide unobserved distant APs from artificially inflating scores with false 1.0 matches.
-            val relevantAps = allKnownAps.filter { bssid ->
-                query.readings.containsKey(bssid) || (cells[bssid]?.rawSamples?.isNotEmpty() == true)
-            }
-            val evalAps = if (relevantAps.isNotEmpty()) relevantAps else allKnownAps.toList()
-
-            for (bssid in evalAps) {
+            for (bssid in allKnownAps) {
                 val cell = cells[bssid]
                 val observedRssi = query.readings[bssid] // null if not heard
-                val mu = cell?.getMembership(observedRssi) ?: 0.0
+                val mu = if (useNeighbourSmoothing) {
+                    cell?.getSmoothedMembership(observedRssi) ?: 0.0
+                } else {
+                    cell?.getRawMembership(observedRssi) ?: 0.0
+                }
+                val rawMu = cell?.getRawMembership(observedRssi) ?: 0.0
                 sumMembership += mu
 
                 val ssid = apSsidMap[bssid] ?: query.bssidToSsidMap[bssid] ?: bssid.takeLast(5)
                 val readStr = if (observedRssi != null) "$observedRssi dBm" else "NS"
-                apDetails.append("  • $ssid ($readStr) -> μ = ${"%.3f".format(mu)}\n")
+                val smoothingTag = if (useNeighbourSmoothing && rawMu == 0.0 && mu > 0.0) " [Smoothed]" else ""
+                apDetails.append("  • $ssid ($readStr) -> raw μ = ${"%.2f".format(rawMu)}, smoothed μ = ${"%.2f".format(mu)}$smoothingTag\n")
             }
 
-            val avgMembership = sumMembership / evalAps.size
+            val avgMembership = sumMembership / totalAps
             spotEvaluations.add(Triple(spotLabel, avgMembership, apDetails.toString()))
         }
 
