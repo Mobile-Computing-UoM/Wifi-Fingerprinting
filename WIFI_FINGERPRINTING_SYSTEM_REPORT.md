@@ -17,11 +17,12 @@ Satellite GNSS/GPS performs poorly indoors because reinforced concrete structure
 ## 2. Research Question & Expected Findings
 
 **Research Question:**  
-> *How accurately can an Android smartphone determine its physical reference location across an 8-spot indoor testbed using Wi-Fi RSSI fingerprinting, and how do calibration sample size ($N \in \{10, 30, 50\}$), the $k$-NN parameter ($k \in \{1, 3, 5\}$), and multi-day temporal drift affect spot classification accuracy and localization error in metres?*
+> *How accurately can an Android smartphone determine its physical reference location across an 8-spot indoor testbed using Wi-Fi RSSI fingerprinting, and how do calibration sample size ($N \in \{10, 30, 50\}$), the $k$-NN parameter ($k \in \{1, 3, 5\}$), and multi-day temporal drift affect spot classification accuracy and localization error in metres? Additionally, is cross-device localization feasible when a fingerprint database surveyed on one smartphone model is transferred directly to a different smartphone model without re-surveying?*
 
-**Expected Findings:**
+**Expected Findings & Hypotheses:**
 - **Sample Convergence ($N$):** We expect $k$-NN localization accuracy to improve as the number of calibration scans per spot increases from $N = 10$ to $N \approx 30\text{--}50$, followed by diminishing returns at larger $N$ because each spot's empirical sample mean and RSSI distribution converge toward its local stationary distribution (whereas Android scan throttling limits *how fast* survey scans can be collected rather than accuracy itself).
 - **Independent Visits & Temporal Drift:** When testing in separate walk-in sessions with the phone held naturally in hand, we expect later-day tests (24+ hours after surveying) to exhibit lower spot accuracy and higher metric error in metres than same-day tests due to human body orientation, obstacle shifts, and environmental multipath changes.
+- **Cross-Device Portability Hypothesis (Phone A Survey $\to$ Phone B Test):** We hypothesize that transferring a survey radio map collected on one smartphone (**Phone A**) directly onto a second heterogeneous smartphone (**Phone B**) is feasible for coarse room/spot discrimination where multi-AP signal gradients are large, but will exhibit measurable accuracy degradation and higher distance error compared to same-device testing due to hardware-specific differences in antenna gain, chassis attenuation, and Wi-Fi chipset RSSI calibration offsets.
 - **Core Wi-Fi Signal Behaviour (LOS vs. NLOS):** Using unthrottled ESP32-C3 hardware baseline scans, we expect direct Line-of-Sight (LOS) RSSI distributions to be approximately bell-shaped (with mild skewness from integer dBm quantization and multipath), whereas Non-Line-of-Sight (NLOS) paths through interior walls will exhibit measurable attenuation and wider variance that we will quantify empirically.
 
 ---
@@ -83,6 +84,9 @@ Following Section 4 of the assignment guidelines, we will systematically conduct
    - Instead, all test queries will be collected during **separate walk-in visits** with the smartphone held naturally in hand, comparing:
      - **Session 1 (Same-Day Walk-In Test):** Conducted in a separate pass after completing the offline survey.
      - **Session 2 (Later-Day Drift Test, +24h):** Conducted at the same 8 reference spots on a subsequent day (24+ hours later) to quantify temporal RSSI drift.
+4. **Cross-Device Transfer Experiment (Survey on Phone A $\to$ Locate on Phone B):**
+   - To test whether a fingerprint map built on one device can be used by another device without re-surveying, we will record the offline reference survey (`wifi_fingerprints.csv`) using **Phone A (Xiaomi Redmi Note 14 5G)** and copy that exact CSV database onto **Phone B (Xiaomi Redmi Note 11)**.
+   - Both phones will then perform independent online localization trials across all 8 spots ($L_1$–$L_8$). We will compare **Same-Device Accuracy** (Note 14 tested against Note 14's survey) vs. **Cross-Device Accuracy** (Note 11 tested against Note 14's survey) and analyze per-AP RSSI offsets between the two devices to determine when cross-device localization succeeds and when hardware bias causes misclassifications.
 
 ### 4.3 Evaluation Metrics, Repetitions & Test Hardware
 - **Metrics Reported:**
