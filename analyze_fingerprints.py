@@ -48,7 +48,7 @@ def main():
 
     # Filter: Only consider records where iteration/sample count > 30
     initial_count = len(df)
-    df = df[df["parsed_samples"].apply(lambda s: len(s) > 30)].copy()
+    df = df[df["parsed_samples"].apply(lambda s: len(s) >= 30)].copy()
     filtered_count = len(df)
     print(f"🔍 Filtered for records with > 30 iterations: {filtered_count} valid records kept (discarded {initial_count - filtered_count} older/low-sample records).\n")
 
