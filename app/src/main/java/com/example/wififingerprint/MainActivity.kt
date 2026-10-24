@@ -151,6 +151,7 @@ class MainActivity : AppCompatActivity() {
     private var testSplitPercent = 30    // Default 30% held-out test split
     private var isAutoCalibrationEnabled = false
     private var autoCalibTarget = 80     // Target accuracy %
+    private var autoCalibMaxExtraScans = 0 // 0 = Unlimited, or positive integer for max extra scans
     private var autoCalibStrategy = "FUZZY_MATRIX" // "FUZZY_MATRIX" or "KNN"
 
     private var currentSampleCount = 0
@@ -176,6 +177,7 @@ class MainActivity : AppCompatActivity() {
         testSplitPercent = prefs.getInt("test_split_percent", 30)
         isAutoCalibrationEnabled = prefs.getBoolean("auto_calib_enabled", false)
         autoCalibTarget = prefs.getInt("auto_calib_target", 80)
+        autoCalibMaxExtraScans = prefs.getInt("auto_calib_max_extra", 0)
         autoCalibStrategy = prefs.getString("auto_calib_strategy", "FUZZY_MATRIX") ?: "FUZZY_MATRIX"
         selectedStrategyMode = StrategyMode.fromKey(prefs.getString("strategy_mode", StrategyMode.BOTH.key))
         knnStrategy.k = knnK
@@ -190,7 +192,8 @@ class MainActivity : AppCompatActivity() {
         testSplit: Int,
         autoCalib: Boolean,
         targetAcc: Int,
-        calibStrat: String
+        calibStrat: String,
+        maxExtraScans: Int
     ) {
         surveySampleCount = survey
         locateSampleCount = locate
@@ -199,6 +202,7 @@ class MainActivity : AppCompatActivity() {
         testSplitPercent = testSplit
         isAutoCalibrationEnabled = autoCalib
         autoCalibTarget = targetAcc
+        autoCalibMaxExtraScans = maxExtraScans
         autoCalibStrategy = calibStrat
         knnStrategy.k = knnK
 
@@ -211,6 +215,7 @@ class MainActivity : AppCompatActivity() {
             putInt("test_split_percent", testSplit)
             putBoolean("auto_calib_enabled", autoCalib)
             putInt("auto_calib_target", targetAcc)
+            putInt("auto_calib_max_extra", maxExtraScans)
             putString("auto_calib_strategy", calibStrat)
             apply()
         }
@@ -218,7 +223,8 @@ class MainActivity : AppCompatActivity() {
         if (!isScanningActive) {
             updateProgressDisplay(0, surveySampleCount, "Survey Progress")
         }
-        val calibInfo = if (autoCalib) "ON ($targetAcc% via $calibStrat)" else "OFF"
+        val limitDesc = if (maxExtraScans > 0) "+$maxExtraScans max" else "unlimited"
+        val calibInfo = if (autoCalib) "ON ($targetAcc% via $calibStrat, $limitDesc)" else "OFF"
         log("\n⚙️ Settings saved: Survey=$survey (${100 - testSplit}/$testSplit split) | Locate=$locate | Centroid k-NN=$knn | Auto-Calib=$calibInfo | Strategy=${mode.title}\n")
     }
 
@@ -239,7 +245,8 @@ class MainActivity : AppCompatActivity() {
         }
         val calibInfo = if (isAutoCalibrationEnabled) {
             val calibStrat = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy" else "Centroid"
-            "ON (≥$autoCalibTarget% via $calibStrat)"
+            val limitDesc = if (autoCalibMaxExtraScans > 0) "+$autoCalibMaxExtraScans max" else "unlimited"
+            "ON (≥$autoCalibTarget% via $calibStrat, $limitDesc)"
         } else {
             "OFF"
         }
@@ -263,6 +270,7 @@ class MainActivity : AppCompatActivity() {
         val cbAutoCalib = dialogView.findViewById<CheckBox>(R.id.cbAutoCalibration)
         val layoutAutoCalib = dialogView.findViewById<LinearLayout>(R.id.layoutAutoCalibSettings)
         val editTargetAcc = dialogView.findViewById<EditText>(R.id.editAutoCalibTarget)
+        val editMaxLimit = dialogView.findViewById<EditText>(R.id.editAutoCalibMaxLimit)
         val rbAutoFuzzy = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibFuzzy)
         val rbAutoKnn = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibKnn)
 
@@ -282,6 +290,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         editTargetAcc.setText(autoCalibTarget.toString())
+        editMaxLimit.setText(autoCalibMaxExtraScans.toString())
         if (autoCalibStrategy == "KNN") {
             rbAutoKnn.isChecked = true
         } else {
@@ -303,6 +312,7 @@ class MainActivity : AppCompatActivity() {
                 val kVal = editKnn.text.toString().toIntOrNull() ?: knnK
                 val splitVal = (editTestSplit.text.toString().toIntOrNull() ?: testSplitPercent).coerceIn(10, 50)
                 val targetAcc = (editTargetAcc.text.toString().toIntOrNull() ?: autoCalibTarget).coerceIn(50, 100)
+                val maxLimitVal = (editMaxLimit.text.toString().toIntOrNull() ?: autoCalibMaxExtraScans).coerceAtLeast(0)
                 val calibStrat = if (rbAutoKnn.isChecked) "KNN" else "FUZZY_MATRIX"
 
                 val chosenMode = when {
@@ -314,7 +324,7 @@ class MainActivity : AppCompatActivity() {
                 if (sCount <= 0 || lCount <= 0 || kVal <= 0) {
                     Toast.makeText(this, "Parameters must be positive integers!", Toast.LENGTH_SHORT).show()
                 } else {
-                    saveSettings(sCount, lCount, kVal, chosenMode, splitVal, cbAutoCalib.isChecked, targetAcc, calibStrat)
+                    saveSettings(sCount, lCount, kVal, chosenMode, splitVal, cbAutoCalib.isChecked, targetAcc, calibStrat, maxLimitVal)
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -390,13 +400,20 @@ class MainActivity : AppCompatActivity() {
             val benchmarkAcc = if (autoCalibStrategy == "FUZZY_MATRIX") fuzzyAcc else knnAcc
 
             // Auto-Calibration condition check
-            val maxAutoLimit = surveySampleCount + 30
-            if (isAutoCalibrationEnabled && benchmarkAcc < autoCalibTarget && activeTargetSamples < maxAutoLimit) {
+            val extraScansDone = activeTargetSamples - surveySampleCount
+            val canExtend = if (autoCalibMaxExtraScans > 0) {
+                extraScansDone < autoCalibMaxExtraScans
+            } else {
+                true // 0 = Unlimited!
+            }
+
+            if (isAutoCalibrationEnabled && benchmarkAcc < autoCalibTarget && canExtend) {
                 val nextTarget = activeTargetSamples + 5
                 activeTargetSamples = nextTarget
                 val stratName = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy Matrix" else "Centroid k-NN"
+                val limitNotice = if (autoCalibMaxExtraScans > 0) " (Max limit: +$autoCalibMaxExtraScans extra scans)" else " (Unlimited mode)"
                 log("\n⚠️ Auto-Calibration: $stratName accuracy is ${"%.1f".format(benchmarkAcc)}% (< target $autoCalibTarget%).\n")
-                log("⚡ Extending survey: collecting +5 more scans (Target now $activeTargetSamples scans)...\n")
+                log("⚡ Extending survey: collecting +5 more scans (Target now $activeTargetSamples scans)$limitNotice...\n")
                 updateProgressDisplay(currentSampleCount, activeTargetSamples, "Auto-Calibrating '$spot'...")
                 scanHandler.postDelayed({
                     if (isScanningActive) triggerWifiScan()
@@ -430,7 +447,13 @@ class MainActivity : AppCompatActivity() {
             saveFingerprintToCsv(spot, processedMeasurements)
 
             val autoCalibStatus = if (isAutoCalibrationEnabled) {
-                if (benchmarkAcc >= autoCalibTarget) "Target Met (${autoCalibTarget}%)" else "Capped at Limit"
+                if (benchmarkAcc >= autoCalibTarget) {
+                    "Target Met (${autoCalibTarget}%)"
+                } else if (autoCalibMaxExtraScans > 0 && extraScansDone >= autoCalibMaxExtraScans) {
+                    "Capped at Limit (+$autoCalibMaxExtraScans scans)"
+                } else {
+                    "Auto-Calibrated (${"%.1f".format(benchmarkAcc)}%)"
+                }
             } else {
                 "Disabled"
             }

@@ -129,6 +129,21 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:text="Max Extra Scans Limit (0 = Unlimited):"
+                android:textStyle="bold"
+                android:textSize="13sp" />
+
+            <EditText
+                android:id="@+id/editAutoCalibMaxLimit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:hint="0 for Unlimited, or e.g. 50"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:text="Benchmark Strategy for Auto-Calibration:"
                 android:textStyle="bold"
                 android:textSize="13sp"
