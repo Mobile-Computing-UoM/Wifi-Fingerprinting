@@ -14,12 +14,16 @@ import android.os.Looper
 import android.os.PowerManager
 import android.view.View
 import android.view.WindowManager
+import android.graphics.Color
+import android.graphics.Typeface
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -32,11 +36,16 @@ import androidx.core.view.WindowInsetsCompat
 import com.example.wififingerprint.strategy.FuzzyMatrixStrategy
 import com.example.wififingerprint.strategy.KnnStrategy
 import com.example.wififingerprint.strategy.LiveQueryScan
+import com.example.wififingerprint.strategy.LocalizationResult
 import com.example.wififingerprint.strategy.RawApMeasurement
 import com.example.wififingerprint.strategy.RawSurveySpot
 import com.example.wififingerprint.strategy.StrategyMode
 import java.io.File
 import java.io.FileWriter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.roundToInt
 
 // Legacy data class kept for backwards compatibility if needed
@@ -53,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnLocate: Button
     private lateinit var btnClearData: Button
     private lateinit var btnSettings: Button
+    private lateinit var btnViewMatrix: Button
     private lateinit var tvSettingsSummary: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var tvProgressLabel: TextView
@@ -61,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wifiManager: WifiManager
     private val surveyDatabase = mutableListOf<RawSurveySpot>()
     private val CSV_FILE_NAME = "wifi_fingerprints.csv"
+    private val FEEDBACK_CSV_NAME = "localization_feedback.csv"
 
     // Strategy Pattern instances
     private var selectedStrategyMode: StrategyMode = StrategyMode.BOTH
@@ -288,13 +299,14 @@ class MainActivity : AppCompatActivity() {
         btnLocate.isEnabled = true
         btnClearData.isEnabled = true
         btnSettings.isEnabled = true
+        btnViewMatrix.isEnabled = true
         releaseScreenWakeLock()
     }
 
     /**
      * Executes localization using the configured Strategy Pattern mode.
-     * When StrategyMode.BOTH is selected, the identical liveQuery is evaluated
-     * by both algorithms simultaneously for direct side-by-side comparison.
+     * Evaluates both algorithms to enable real-world side-by-side comparison
+     * and prompts the user for ground-truth validation feedback.
      */
     private fun executeLocalization(query: LiveQueryScan) {
         if (surveyDatabase.isEmpty()) {
@@ -304,22 +316,20 @@ class MainActivity : AppCompatActivity() {
 
         rebuildStrategyModels()
 
+        // Evaluate both strategies on the exact same live query data
+        val resKnn = knnStrategy.infer(query)
+        val resFuzzy = fuzzyMatrixStrategy.infer(query)
+
         when (selectedStrategyMode) {
             StrategyMode.KNN -> {
-                val result = knnStrategy.infer(query)
-                log(result.logOutput)
+                log(resKnn.logOutput)
             }
 
             StrategyMode.FUZZY_MATRIX -> {
-                val result = fuzzyMatrixStrategy.infer(query)
-                log(result.logOutput)
+                log(resFuzzy.logOutput)
             }
 
             StrategyMode.BOTH -> {
-                // Run both strategies on the EXACT SAME live query data
-                val resKnn = knnStrategy.infer(query)
-                val resFuzzy = fuzzyMatrixStrategy.infer(query)
-
                 log(resKnn.logOutput)
                 log(resFuzzy.logOutput)
 
@@ -347,6 +357,145 @@ class MainActivity : AppCompatActivity() {
                 log(summary.toString())
             }
         }
+
+        // Prompt user for ground-truth accuracy feedback and persist outcome
+        showFeedbackDialog(query, resKnn, resFuzzy)
+    }
+
+    /**
+     * Interactive validation dialog asking user whether prediction is correct
+     * and selecting the actual physical location to persist for empirical accuracy analysis.
+     */
+    private fun showFeedbackDialog(
+        query: LiveQueryScan,
+        resKnn: LocalizationResult,
+        resFuzzy: LocalizationResult
+    ) {
+        val spotNames = surveyDatabase.map { it.spotLabel }.distinct().sorted()
+        if (spotNames.isEmpty()) return
+
+        val knnWinner = resKnn.predictedSpot ?: "None"
+        val fuzzyWinner = resFuzzy.predictedSpot ?: "None"
+
+        val dialogView = layoutInflater.inflate(R.layout.dialog_feedback, null, false)
+        val tvSummary = dialogView.findViewById<TextView>(R.id.tvFeedbackSummary)
+        val spinnerActualSpot = dialogView.findViewById<Spinner>(R.id.spinnerActualSpot)
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, spotNames)
+        spinnerActualSpot.adapter = adapter
+
+        // Pre-select predicted spot
+        val defaultSelection = if (spotNames.contains(fuzzyWinner)) fuzzyWinner else if (spotNames.contains(knnWinner)) knnWinner else spotNames.first()
+        val defaultIdx = spotNames.indexOf(defaultSelection)
+        if (defaultIdx >= 0) {
+            spinnerActualSpot.setSelection(defaultIdx)
+        }
+
+        val knnGapStr = if (resKnn.confidenceMargin != null) " (Gap: ${"%.2f".format(resKnn.confidenceMargin)} dBm)" else ""
+        val fuzzyMarginStr = if (resFuzzy.confidenceMargin != null) " (Margin: +${"%.4f".format(resFuzzy.confidenceMargin)})" else ""
+
+        tvSummary.text = "Inference Predictions:\n" +
+                "• Strategy 1 (k-NN): $knnWinner$knnGapStr\n" +
+                "• Strategy 2 (Fuzzy): $fuzzyWinner$fuzzyMarginStr\n\n" +
+                "Please select your ACTUAL current location to evaluate and persist accuracy:"
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎯 Validate Prediction Accuracy")
+            .setView(dialogView)
+            .setPositiveButton("✅ Confirm & Save") { _, _ ->
+                val actualSpot = spinnerActualSpot.selectedItem?.toString() ?: defaultSelection
+                val isKnnCorrect = (actualSpot == knnWinner)
+                val isFuzzyCorrect = (actualSpot == fuzzyWinner)
+
+                saveEvaluationRecord(actualSpot, resKnn, resFuzzy, query)
+
+                val feedbackMsg = StringBuilder()
+                feedbackMsg.append("\n========================================\n")
+                feedbackMsg.append("📝 USER VALIDATION PERSISTED\n")
+                feedbackMsg.append("========================================\n")
+                feedbackMsg.append("• Actual Ground Truth:  $actualSpot\n")
+                feedbackMsg.append("• Strategy 1 (k-NN):    $knnWinner -> ${if (isKnnCorrect) "✅ CORRECT" else "❌ WRONG"}\n")
+                feedbackMsg.append("• Strategy 2 (Fuzzy):   $fuzzyWinner -> ${if (isFuzzyCorrect) "✅ CORRECT" else "❌ WRONG"}\n")
+                feedbackMsg.append("💾 Saved to $FEEDBACK_CSV_NAME for further analysis\n")
+                feedbackMsg.append("========================================\n\n")
+                log(feedbackMsg.toString())
+
+                Toast.makeText(this, "Validation saved for '$actualSpot'!", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Skip", null)
+            .show()
+    }
+
+    /**
+     * Appends validation result to localization_feedback.csv.
+     */
+    private fun saveEvaluationRecord(
+        actualSpot: String,
+        resKnn: LocalizationResult,
+        resFuzzy: LocalizationResult,
+        query: LiveQueryScan
+    ) {
+        try {
+            val file = File(getExternalFilesDir(null), FEEDBACK_CSV_NAME)
+            val isNewFile = !file.exists()
+            val writer = FileWriter(file, true) // append mode
+            val timestamp = System.currentTimeMillis()
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val isoTime = isoFormat.format(Date(timestamp))
+
+            if (isNewFile) {
+                writer.append("timestamp_ms,iso_time,actual_spot,knn_predicted,knn_correct,knn_margin,fuzzy_predicted,fuzzy_correct,fuzzy_margin,query_signals\n")
+            }
+
+            val knnPred = resKnn.predictedSpot ?: "None"
+            val knnCorrect = if (knnPred == actualSpot) 1 else 0
+            val knnMargin = resKnn.confidenceMargin ?: 0.0
+
+            val fuzzyPred = resFuzzy.predictedSpot ?: "None"
+            val fuzzyCorrect = if (fuzzyPred == actualSpot) 1 else 0
+            val fuzzyMargin = resFuzzy.confidenceMargin ?: 0.0
+
+            val queryStr = query.readings.entries.joinToString(";") { "${it.key}:${it.value}" }
+
+            writer.append("$timestamp,$isoTime,$actualSpot,$knnPred,$knnCorrect,$knnMargin,$fuzzyPred,$fuzzyCorrect,$fuzzyMargin,\"$queryStr\"\n")
+            writer.flush()
+            writer.close()
+        } catch (e: Exception) {
+            log("❌ Error writing feedback CSV: ${e.message}\n")
+        }
+    }
+
+    /**
+     * Displays a full scrollable dialog showing the complete 3D Fuzzy Matrix model.
+     */
+    private fun showFuzzyMatrixDialog() {
+        if (!fuzzyMatrixStrategy.isModelLoaded()) {
+            Toast.makeText(this, "Fuzzy Matrix is empty! Survey spots or load data first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val matrixText = fuzzyMatrixStrategy.getFormattedMatrix()
+
+        val scrollView = ScrollView(this).apply {
+            setPadding(32, 24, 32, 24)
+        }
+        val tv = TextView(this).apply {
+            text = matrixText
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+            setTextColor(Color.DKGRAY)
+        }
+        scrollView.addView(tv)
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📊 3D Fuzzy Matrix View")
+            .setView(scrollView)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Print to Log") { _, _ ->
+                log("\n" + matrixText + "\n")
+            }
+            .show()
     }
 
     // Save fingerprint entry into wifi_fingerprints.csv including ALL raw measurements
@@ -437,6 +586,9 @@ class MainActivity : AppCompatActivity() {
 
             rebuildStrategyModels()
             log("📂 Loaded ${surveyDatabase.size} saved spot(s) from ${file.name}\n")
+            if (fuzzyMatrixStrategy.isModelLoaded()) {
+                log("📊 Fuzzy 3D Matrix built (${surveyDatabase.size} spots × ${fuzzyMatrixStrategy.getAllKnownAps().size} APs). Tap 'View Matrix' to inspect.\n")
+            }
         } catch (e: Exception) {
             log("❌ Error reading CSV: ${e.message}\n")
         }
@@ -464,6 +616,7 @@ class MainActivity : AppCompatActivity() {
                 btnLocate.isEnabled = true
                 btnClearData.isEnabled = true
                 btnSettings.isEnabled = true
+                btnViewMatrix.isEnabled = true
                 releaseScreenWakeLock()
                 return
             }
@@ -533,6 +686,7 @@ class MainActivity : AppCompatActivity() {
             btnLocate.isEnabled = true
             btnClearData.isEnabled = true
             btnSettings.isEnabled = true
+            btnViewMatrix.isEnabled = true
             releaseScreenWakeLock()
             return
         }
@@ -544,6 +698,7 @@ class MainActivity : AppCompatActivity() {
             btnLocate.isEnabled = true
             btnClearData.isEnabled = true
             btnSettings.isEnabled = true
+            btnViewMatrix.isEnabled = true
             releaseScreenWakeLock()
             return
         }
@@ -571,6 +726,7 @@ class MainActivity : AppCompatActivity() {
         btnLocate = findViewById(R.id.btnLocate)
         btnClearData = findViewById(R.id.btnClearData)
         btnSettings = findViewById(R.id.btnSettings)
+        btnViewMatrix = findViewById(R.id.btnViewMatrix)
         tvSettingsSummary = findViewById(R.id.tvSettingsSummary)
         progressBar = findViewById(R.id.progressBar)
         tvProgressLabel = findViewById(R.id.tvProgressLabel)
@@ -595,6 +751,15 @@ class MainActivity : AppCompatActivity() {
             showSettingsDialog()
         }
 
+        // View Matrix Button: Inspect the loaded 3D Fuzzy Matrix
+        btnViewMatrix.setOnClickListener {
+            if (isScanningActive) {
+                log("\n⚠️ A scan is already in progress, please wait...\n")
+                return@setOnClickListener
+            }
+            showFuzzyMatrixDialog()
+        }
+
         // 1. Survey Button: Record a labelled spot
         btnSurvey.setOnClickListener {
             if (isScanningActive) {
@@ -614,6 +779,7 @@ class MainActivity : AppCompatActivity() {
             btnLocate.isEnabled = false
             btnClearData.isEnabled = false
             btnSettings.isEnabled = false
+            btnViewMatrix.isEnabled = false
 
             isSurveying = true
             acquireScreenWakeLock()
@@ -648,6 +814,7 @@ class MainActivity : AppCompatActivity() {
             btnLocate.isEnabled = false
             btnClearData.isEnabled = false
             btnSettings.isEnabled = false
+            btnViewMatrix.isEnabled = false
 
             isSurveying = false
             sampleBuffer.clear()

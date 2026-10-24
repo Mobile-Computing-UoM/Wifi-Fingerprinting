@@ -219,4 +219,67 @@ class FuzzyMatrixStrategy(
             logOutput = log.toString()
         )
     }
+
+    /**
+     * Checks if the 3D Fuzzy Matrix model has been built with at least one spot.
+     */
+    fun isModelLoaded(): Boolean = matrix.isNotEmpty() && allKnownAps.isNotEmpty()
+
+    /**
+     * Access the full 3D Matrix grid: SpotLabel -> (BSSID -> DiscreteFuzzyCell).
+     */
+    fun getMatrix(): Map<String, Map<String, DiscreteFuzzyCell>> = matrix
+
+    /**
+     * Set of all known Access Point BSSIDs registered in the matrix.
+     */
+    fun getAllKnownAps(): Set<String> = allKnownAps
+
+    /**
+     * Mapping from BSSID to SSID name.
+     */
+    fun getApSsidMap(): Map<String, String> = apSsidMap
+
+    /**
+     * Generates a structured human-readable text dump of the entire 3D Fuzzy Matrix
+     * showing spots, APs, Not Seen frequencies, and empirical discrete distribution bins.
+     */
+    fun getFormattedMatrix(): String {
+        if (matrix.isEmpty()) {
+            return "⚠️ Fuzzy Matrix is empty! Record or load survey spots first."
+        }
+
+        val sb = StringBuilder()
+        sb.append("========================================\n")
+        sb.append("📊 3D FUZZY MATRIX DUMP\n")
+        sb.append("Dimensions: ${matrix.size} Spots × ${allKnownAps.size} APs\n")
+        sb.append("Smoothing: ${if (useNeighbourSmoothing) "ON (±1dB: 50%, ±2dB: 25%)" else "OFF (Exact Lookup)"}\n")
+        sb.append("========================================\n\n")
+
+        for ((spot, cellMap) in matrix) {
+            val totalScans = spotTotalScans[spot] ?: 1
+            sb.append("📍 SPOT: $spot ($totalScans total survey scans)\n")
+            for (bssid in allKnownAps) {
+                val cell = cellMap[bssid]
+                val ssid = apSsidMap[bssid] ?: bssid.takeLast(6)
+                if (cell == null || (cell.rssiFrequencies.isEmpty() && cell.notSeenFrequency >= 1.0)) {
+                    sb.append("  • $ssid ($bssid)\n")
+                    sb.append("    [Status]: Unheard (NS = 100%, μ = 0.0 for any dBm)\n")
+                } else {
+                    val nsPercent = (cell.notSeenFrequency * 100).toInt()
+                    sb.append("  • $ssid ($bssid)\n")
+                    sb.append("    - Not Seen Rate: $nsPercent%\n")
+                    val sorted = cell.rssiFrequencies.entries.sortedByDescending { it.value }
+                    val binsText = sorted.take(6).joinToString(", ") { "${it.key}dBm: ${(it.value * 100).toInt()}%" }
+                    sb.append("    - Empirical Freq: $binsText\n")
+                    if (useNeighbourSmoothing) {
+                        val smoothedText = sorted.take(4).joinToString(", ") { "${it.key}dBm: ${"%.2f".format(cell.getSmoothedMembership(it.key))}" }
+                        sb.append("    - Smoothed Peak μ: $smoothedText\n")
+                    }
+                }
+            }
+            sb.append("----------------------------------------\n")
+        }
+        return sb.toString()
+    }
 }
