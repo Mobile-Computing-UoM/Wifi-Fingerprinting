@@ -234,7 +234,16 @@ class MainActivity : AppCompatActivity() {
         releaseScreenWakeLock()
     }
 
-    // k-Nearest Neighbors (k-NN) matching ONLY available dimensions
+    // Candidate match holding penalized distance, raw mutual RMSE, and AP coverage
+    private data class CandidateMatch(
+        val spotLabel: String,
+        val totalDistance: Double,
+        val rawRmse: Double,
+        val matchedAps: Int,
+        val totalAps: Int
+    )
+
+    // k-Nearest Neighbors (k-NN) matching with Mutual RMSE + Overlap Penalty (Fix for Bug 1)
     private fun locateSpotUsingKnn(liveScan: Map<String, Int>, k: Int = 1) {
         if (surveyDatabase.isEmpty()) {
             log("\n⚠️ No survey spots in database to compare against!\n")
@@ -242,19 +251,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         log("\n========================================\n")
-        log("🔍 Running $k-NN Localization (Available Dimensions Only)...\n")
+        log("🔍 Running $k-NN Localization (Penalized Mutual RMSE)...\n")
         log("========================================\n")
 
-        // Stores Triple(SpotLabel, RMSE_Distance, MatchedDimensionsCount)
-        val distances = mutableListOf<Triple<String, Double, Int>>()
+        val distances = mutableListOf<CandidateMatch>()
+        val penaltyAlpha = 15.0 // dBm scaling penalty for non-overlapping/missing APs
 
         for (fp in surveyDatabase) {
-            // Match ONLY the dimensions that are available in both live scan and this surveyed spot
             val commonBssids = liveScan.keys.intersect(fp.readings.keys)
+            val maxAps = maxOf(liveScan.size, fp.readings.size)
 
             if (commonBssids.isEmpty()) {
                 // No common APs found: cannot match this spot
-                distances.add(Triple(fp.spotLabel, Double.MAX_VALUE, 0))
+                distances.add(CandidateMatch(fp.spotLabel, Double.MAX_VALUE, Double.MAX_VALUE, 0, maxAps))
             } else {
                 var sumSquare = 0.0
                 for (bssid in commonBssids) {
@@ -263,41 +272,52 @@ class MainActivity : AppCompatActivity() {
                     sumSquare += (rSurvey - rLive).toDouble().pow(2)
                 }
 
-                // Root Mean Square Error (RMSE) across only available matching AP dimensions
-                val rmse = sqrt(sumSquare / commonBssids.size)
-                distances.add(Triple(fp.spotLabel, rmse, commonBssids.size))
+                // Raw Root Mean Square Error (RMSE) across only common APs
+                val rawRmse = sqrt(sumSquare / commonBssids.size)
+
+                // Overlap ratio: proportion of APs that are mutually shared
+                val overlapRatio = commonBssids.size.toDouble() / maxAps.toDouble()
+
+                // Penalized Distance = Raw RMSE + penalty proportional to missing AP dimensions
+                // Eliminates false matches where a distant spot shares only 1 AP by coincidence
+                val penalizedDistance = rawRmse + penaltyAlpha * (1.0 - overlapRatio)
+
+                distances.add(CandidateMatch(fp.spotLabel, penalizedDistance, rawRmse, commonBssids.size, maxAps))
             }
         }
 
-        // Sort by distance ascending (closest match first). If distances match, tie-break by higher matched AP count.
-        distances.sortWith(compareBy({ it.second }, { -it.third }))
+        // Sort by penalized distance ascending (closest match first).
+        // Tie-break by higher matched AP count, then by lower raw RMSE.
+        distances.sortWith(compareBy({ it.totalDistance }, { -it.matchedAps }, { it.rawRmse }))
 
-        log("Distance Rankings (RMSE over available dimensions):\n")
+        log("Distance Rankings (Mutual RMSE + Missing AP Overlap Penalty):\n")
         for ((index, item) in distances.withIndex()) {
             val marker = if (index < k) "👉 [TOP-$k]" else "   "
-            if (item.second == Double.MAX_VALUE) {
-                log("$marker ${item.first} -> No common APs matched!\n")
+            if (item.totalDistance == Double.MAX_VALUE) {
+                log("$marker ${item.spotLabel} -> No common APs matched!\n")
             } else {
-                log("$marker ${item.first} -> Avg Diff: ${"%.2f".format(item.second)} dBm (matched ${item.third} APs)\n")
+                log("$marker ${item.spotLabel} -> Score: ${"%.2f".format(item.totalDistance)} dBm (RMSE: ${"%.2f".format(item.rawRmse)} dBm, matched ${item.matchedAps}/${item.totalAps} APs)\n")
             }
         }
 
-        val validMatches = distances.filter { it.second != Double.MAX_VALUE }
+        val validMatches = distances.filter { it.totalDistance != Double.MAX_VALUE }
         if (validMatches.isNotEmpty()) {
             val topK = validMatches.take(k)
             if (k > 1) {
                 log("\nTop-$k Neighbors for Voting:\n")
                 for ((idx, cand) in topK.withIndex()) {
-                    log("   ${idx + 1}. ${cand.first} (RMSE: ${"%.2f".format(cand.second)} dBm, ${cand.third} APs)\n")
+                    log("   ${idx + 1}. ${cand.spotLabel} (Score: ${"%.2f".format(cand.totalDistance)} dBm, RMSE: ${"%.2f".format(cand.rawRmse)} dBm, ${cand.matchedAps}/${cand.totalAps} APs)\n")
                 }
             }
 
-            // Majority voting among top k candidates
-            val votes = topK.groupingBy { it.first }.eachCount()
-            val winner = votes.maxByOrNull { it.value }?.key ?: topK.first().first
-            val winnerCand = topK.first { it.first == winner }
+            // Majority voting among top k candidates; break ties by picking the candidate with the smallest distance
+            val votes = topK.groupingBy { it.spotLabel }.eachCount()
+            val maxVotes = votes.values.maxOrNull() ?: 0
+            val tiedCandidates = votes.filter { it.value == maxVotes }.keys
+            val winner = topK.first { it.spotLabel in tiedCandidates }.spotLabel
+            val winnerCand = topK.first { it.spotLabel == winner }
 
-            log("\n📍 PREDICTED LOCATION ($k-NN Mode): $winner (Avg Diff: ${"%.2f".format(winnerCand.second)} dBm, ${winnerCand.third} APs matched)\n")
+            log("\n📍 PREDICTED LOCATION ($k-NN Mode): $winner (Score: ${"%.2f".format(winnerCand.totalDistance)} dBm, RMSE: ${"%.2f".format(winnerCand.rawRmse)} dBm, ${winnerCand.matchedAps}/${winnerCand.totalAps} APs matched)\n")
         } else {
             log("\n⚠️ Could not determine location: no common APs matched with any saved spot.\n")
         }
