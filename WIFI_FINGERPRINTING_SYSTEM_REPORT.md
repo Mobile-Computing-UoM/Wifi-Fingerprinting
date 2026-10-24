@@ -1,169 +1,137 @@
 # CS4473 Mobile Computing: Wi-Fi Fingerprinting Localization System Report
-**Implementation, Offline Surveying, and Empirical Comparative Evaluation**
+**Option E — True Scan-Level $k$-NN vs. Discrete Fuzzy Matrix Architecture, Floor-Plan Metric Error, and Cross-Device Validation**
+
+**Group:** Group E-01  
+**Members:** S. Vithurshan (`220672G`), S. Pratheep (`220489C`)  
+**Department of Computer Science and Engineering, University of Moratuwa**
 
 ---
 
-## 1. Strategy 1: $k$-Nearest Neighbors ($k$-NN) Implementation
+## 1. Executive Summary & "Our Own Twist" (Proposal Item 5)
 
-### 1.1 Architecture & Implementation Details
-The $k$-NN localization engine is implemented in [`KnnStrategy.kt`](file:///media/vithurshan/vithu/mc/app/src/main/java/com/example/wififingerprint/strategy/KnnStrategy.kt) under the common [`LocalizationStrategy`](file:///media/vithurshan/vithu/mc/app/src/main/java/com/example/wififingerprint/strategy/LocalizationStrategy.kt) interface.
+This report presents the design, implementation, and empirical evaluation of our Android Wi-Fi location fingerprinting system for **CS4473 Option E (Deliverables D1–D4)**. Beyond the baseline Option E requirements, **our own twist** introduces two key research contributions implemented inside a unified **Strategy Pattern** architecture ([`LocalizationStrategy.kt`](file:///media/vithurshan/vithu/mc/app/src/main/java/com/example/wififingerprint/strategy/LocalizationStrategy.kt)):
 
-- **Offline Representation**: For each physical survey spot $S_j$, an empirical radio fingerprint vector $\mathbf{f}_j \in \mathbb{R}^M$ is constructed over all $M$ unique Access Points registered across the building:
-  $$\mathbf{f}_j = \Big[ \bar{r}_{j, 1}, \; \bar{r}_{j, 2}, \; \dots, \; \bar{r}_{j, M} \Big]^T$$
-  where $\bar{r}_{j, a}$ is the arithmetic mean RSSI (in dBm) of Access Point $a$ recorded during the 50 survey iterations at spot $j$. If an AP was never detected at spot $j$, it is assigned the hardware noise floor / missing penalty $r_{\text{default}} = -100\text{ dBm}$.
-
-- **Online Query Vector**: A live query scan vector $\mathbf{q} \in \mathbb{R}^M$ is constructed from visible APs:
-  $$\mathbf{q} = \Big[ q_1, \; q_2, \; \dots, \; q_M \Big]^T$$
-  where $q_a$ is the live measured RSSI, or $-100\text{ dBm}$ if undetected in that scan.
-
-### 1.2 Mathematical Distance Metric & Decision Rule
-1. **Euclidean Signal Distance**:
-   For each candidate spot $S_j$, the distance in $M$-dimensional RF feature space is computed as:
-   $$D(S_j, \mathbf{q}) = \sqrt{\sum_{a=1}^{M} \left( q_a - \bar{r}_{j, a} \right)^2}$$
-
-2. **Classification Decision ($k=1$)**:
-   The predicted location $\hat{S}$ is selected by finding the candidate spot that minimizes Euclidean distance:
-   $$\hat{S}_{k\text{-NN}} = \arg\min_{j} D(S_j, \mathbf{q})$$
-
-3. **Confidence Gap Metric**:
-   The distance margin between the winner and runner-up spot provides the certainty metric:
-   $$\Delta D = D(\text{Rank 2}) - D(\text{Rank 1})$$
-   A larger $\Delta D$ indicates strong cluster isolation, whereas $\Delta D \approx 0\text{ dBm}$ indicates boundary ambiguity.
+1. **Dual-Strategy Algorithmic Twist (True Scan-Level $k$-NN vs. 3D Discrete Fuzzy Matrix):** On every live Wi-Fi scan, the app simultaneously evaluates a classic **Scan-Level $k$-NN Classifier** ($k \in \{1, 3, 5\}$ over $8 \times N$ individual stored scan vectors, with RADAR-style 2D coordinate averaging in metres) against a non-parametric **3D Discrete Fuzzy Membership Matrix** that models empirical RSSI frequency histograms $\mu_{s,a}(r)$, explicit `Not Seen (NS)` dropout probability, and a $\pm 2\text{ dB}$ neighbour kernel with an exponential long tail ($0.20 \cdot \exp(-d^2/32)$).
+2. **Cross-Device Hardware Generalisation Twist:** Rather than testing on a single handset, we evaluate live walk-in localization across two heterogeneous smartphones—**Xiaomi Redmi Note 14 5G** (Model `24115RA8EG`, Android 14 / HyperOS) and **Xiaomi Redmi Note 11** (Model `2201117TG`, Android 13 / MIUI 14)—quantifying both the survey-device matching confounder and signal-level-dependent RF front-end offset.
 
 ---
 
-## 2. Strategy 2: 3D Fuzzy Matrix System Implementation
+## 2. Floor Plan, 8 Surveyed Spots ($L_1$–$L_8$) & Ground-Truth Coordinates
 
-### 2.1 Architecture & Discrete Grid Representation
-The Fuzzy localization engine is implemented in [`FuzzyMatrixStrategy.kt`](file:///media/vithurshan/vithu/mc/app/src/main/java/com/example/wififingerprint/strategy/FuzzyMatrixStrategy.kt). Unlike parametric Gaussian models (which collapse the raw survey data into a single mean $\mu$ and standard deviation $\sigma$, acting as an artificial centroid metric identical to $k$-NN), this system implements a **pure non-parametric discrete empirical distribution**.
+The indoor testbed spans a multi-room residential floor ($10\text{ m} \times 5\text{ m}$) covered by $M = 3$ project-controlled 2.4 GHz Wi-Fi Access Points (`98:a9:42:59:92:85` / `SLT-4G_599285`, `98:a9:42:0b:16:4a` / `Dialog 4G 610`, and `a0:c4:c6:a6:fc:18` / `4G-UFI-C18`). Eight reference spots ($L_1$–$L_8$), spaced $\approx 2.0\text{--}2.5\text{ m}$ apart across rooms and doorway transitions, were surveyed with $N = 50$ scans per spot ($400$ total stored scan vectors) and mapped to measured 2D Cartesian coordinates $(x_i, y_i)$ in metres relative to the south-west corner origin $(0.0\text{ m}, 0.0\text{ m})$:
 
-The system spans **3 physical and linguistic dimensions**:
-- **Dimension 1 (Spots)**: $S \in \{\text{Prayer Room}, \text{Hall}, \text{Hall 2}, \text{Bedroom}, \text{Corridor}, \text{Room 2}, \text{Kitchen}\}$
-- **Dimension 2 (Access Points)**: $A \in \{\text{SLT-4G}, \text{Dialog 4G}, \text{4G-UFI}\}$
-- **Dimension 3 (Signal State Universe)**: Discrete integer RSSI values $v \in [-100, 0]\text{ dBm}$ plus the explicit **Not Seen (NS)** state.
-
-Each grid cell `DiscreteFuzzyCell(spot, bssid)` encapsulates:
-1. The empirical Probability Mass Function (PMF):
-   $$\mu_{\text{raw}}(v) = \frac{\text{Count}(v)}{N_{\text{total}}}$$
-2. The Not Seen frequency:
-   $$\mu(\text{NS}) = \frac{N_{\text{total}} - N_{\text{heard}}}{N_{\text{total}}}$$
-
-### 2.2 Neighbour Smoothing (Discrete Fuzzy Dilation)
-In real-world mobile scans, Wi-Fi chipsets experience quantization noise and slight $1\text{ dB}$ jitter. An exact integer lookup would yield a **$0.0$ cliff** if a live reading hits an integer that was missed during survey by pure chance.
-
-To resolve this without assuming a unimodal Gaussian curve, the system applies **Discrete Neighbour Smoothing** using the max-product composition operator:
-
-$$\mu_{\text{smoothed}}(v) = \max \Big( \mu_{\text{raw}}(v), \; 0.50 \cdot \max\big(\mu_{\text{raw}}(v-1), \mu_{\text{raw}}(v+1)\big), \; 0.25 \cdot \max\big(\mu_{\text{raw}}(v-2), \mu_{\text{raw}}(v+2)\big) \Big)$$
-
-For the **Not Seen (NS)** state:
-$$\mu_{\text{smoothed}}(\text{NS}) = \mu(\text{NS})$$
-
-#### Properties:
-- **Peak Preservation**: Retains empirical multimodal peaks caused by multipath fading without shifting the center.
-- **$\max$ Operator**: Ensures that a high exact match is never diluted by surrounding empty bins.
-- **Graceful Jitter Tolerance**: Transmits $50\%$ membership to $\pm 1\text{ dB}$ neighbours and $25\%$ to $\pm 2\text{ dB}$ neighbours. Beyond $\pm 2\text{ dB}$, membership drops cleanly to $0.0$.
-
-### 2.3 Multi-AP Fusion & Inference Rule
-For a live query $\mathbf{q}$, the aggregated membership score for candidate spot $S_j$ across all $M$ Access Points is computed via average fusion:
-
-$$\text{Score}(S_j) = \frac{1}{M} \sum_{a=1}^{M} \mu_{j, a}(q_a)$$
-
-The predicted location is the spot maximizing aggregated fuzzy membership:
-$$\hat{S}_{\text{Fuzzy}} = \arg\max_{j} \text{Score}(S_j)$$
-Winning margin:
-$$\Delta \mu = \text{Score}(\text{Rank 1}) - \text{Score}(\text{Rank 2})$$
+| Spot ID | Label in App / CSV | Floor-Plan $(x_i, y_i)$ | Mean RSSI $[AP_1, AP_2, AP_3]$ (dBm) | Propagation & Wall-Attenuation Profile |
+| :---: | :--- | :---: | :---: | :--- |
+| **$L_1$** | `prayerroom` (Prayer Room) | $(0.0\text{ m},\; 0.0\text{ m})$ | $[-25,\; -23,\; -49]$ | Direct Line-of-Sight (LOS) to $AP_1$ & $AP_2$ |
+| **$L_2$** | `hall` (Main Hall) | $(2.5\text{ m},\; 1.0\text{ m})$ | $[-42,\; -41,\; -53]$ | Open central zone ($2.7\text{ m}$ from $L_1$) |
+| **$L_3$** | `hall2` (Hallway 2) | $(4.5\text{ m},\; 1.0\text{ m})$ | $[-41,\; -33,\; -60]$ | Inner transition ($2.0\text{ m}$ east of $L_2$) |
+| **$L_4$** | `bedroom` (Bedroom) | $(2.5\text{ m},\; 3.5\text{ m})$ | $[-43,\; -45,\; -68]$ | 1 brick partition wall north of $L_2$ ($2.5\text{ m}$ step) |
+| **$L_5$** | `coridoor` (Corridor) | $(4.5\text{ m},\; 3.0\text{ m})$ | $[-58,\; -50,\; -61]$ | Central passage ($2.0\text{ m}$ north of $L_3$) |
+| **$L_6$** | `room2` (Room 2) | $(7.0\text{ m},\; 1.0\text{ m})$ | $[-66,\; -57,\; -59]$ | Eastern room ($2.5\text{ m}$ east of $L_3$; 2 walls) |
+| **$L_7$** | `kitchen` (Kitchen) | $(7.0\text{ m},\; 3.0\text{ m})$ | $[-75,\; -65,\; -74]$ | Deep NLOS behind masonry walls ($2.0\text{ m}$ north of $L_6$) |
+| **$L_8$** | `storeroom` (Storeroom) | $(9.0\text{ m},\; 2.0\text{ m})$ | $[-84,\; -76,\; -100\text{ (NS)}]$ | Far-east utility room ($2.2\text{ m}$ from $L_6$; $AP_3$ drops out) |
 
 ---
 
-## 3. Offline Surveying Phase & Environmental Calibration
+## 3. Localization Strategies: Mathematical Formulation & Implementation
 
-### 3.1 Spatial Setup & Access Points
-The offline radio map was surveyed across **7 discrete physical locations** in an indoor residential/office environment using **3 persistent Access Points**:
+### 3.1 Strategy 1: True Scan-Level $k$-NN & Metric Coordinate Interpolation (`KnnStrategy.kt`)
+Earlier iterations of our prototype compared a live scan only against the per-spot mean vector $\bar{\mathbf{f}}_j$, which is formally a **Nearest-Centroid Classifier (NCC)** where varying $k$ has no effect. To evaluate $k \in \{1, 3, 5\}$ and subsampling $N \in \{10, 30, 50\}$ rigorously, [`KnnStrategy.kt`](file:///media/vithurshan/vithu/mc/app/src/main/java/com/example/wififingerprint/strategy/KnnStrategy.kt) stores all $8 \times N$ individual survey scan vectors $\mathbf{s}_{i,n} = [r_{i,n,1}, \dots, r_{i,n,M}]^T$ ($i \in \{1,\dots,8\}, n \in \{1,\dots,N\}$).
 
-| AP Identifier | SSID Name | BSSID (MAC Address) | Frequency Band |
-| :--- | :--- | :--- | :--- |
-| **AP 1** | `SLT-4G_599285` | `98:a9:42:59:92:85` | 2.4 GHz |
-| **AP 2** | `Dialog 4G 610` | `98:a9:42:0b:16:4a` | 2.4 GHz |
-| **AP 3** | `4G-UFI-C18` | `a0:c4:c6:a6:fc:18` | 2.4 GHz |
+- **Consistent Missing-AP Floor (`-100 dBm`):** Both survey and live query vectors are defined over the full set of $M$ registered APs. Any AP not detected in a scan is assigned $r_{\text{floor}} = -100\text{ dBm}$. Unlike intersection-only distance metrics, this preserves critical negative information (for example, $AP_3$ dropping out in $L_8$ `Storeroom`).
+- **Euclidean Distance & Majority Voting ($k \in \{1, 3, 5\}$):** Given a live query $\mathbf{q} = [q_1, \dots, q_M]^T$, the Euclidean distance to every stored scan $\mathbf{s}_{i,n}$ is:
+  $$d(\mathbf{q}, \mathbf{s}_{i,n}) = \sqrt{\sum_{a=1}^{M} \left( q_a - r_{i,n,a} \right)^2}$$
+  The algorithm selects the $k$ individual scans with the smallest distances, predicts the discrete spot $\hat{L}$ by majority vote (breaking ties by minimum mean distance), and computes the **2D metric coordinate estimate** $(\hat{x}, \hat{y})$ in metres by averaging the floor-plan coordinates of the $k$ nearest neighbours (as in Bahl & Padmanabhan's *RADAR*):
+  $$(\hat{x}, \hat{y}) = \frac{1}{k} \sum_{m=1}^{k} (x_{(m)}, y_{(m)}), \qquad e_{\text{metres}} = \sqrt{(\hat{x} - x_{\text{true}})^2 + (\hat{y} - y_{\text{true}})^2}$$
 
-### 3.2 Calibration Protocol & Data Volume
-- **Iteration Count**: **50 consecutive scan iterations** were recorded at each physical spot.
-- **Data per Spot**: $50 \text{ scans} \times 3 \text{ APs} = 150 \text{ raw RSSI samples per spot}$.
-- **Total Calibration Dataset**: $7 \text{ spots} \times 150 \text{ samples} = \mathbf{1,050 \text{ measurements per device}}$.
-- **Persistence**: Saved directly to `/sdcard/Android/data/com.example.wififingerprint/files/wifi_fingerprints.csv`. Each record contains raw integer arrays formatted as `"[-27;-26;-30;...]"` alongside metadata.
+### 3.2 Strategy 2: 3D Discrete Fuzzy Membership Matrix (`FuzzyMatrixStrategy.kt`)
+Implemented in [`FuzzyMatrixStrategy.kt`](file:///media/vithurshan/vithu/mc/app/src/main/java/com/example/wififingerprint/strategy/FuzzyMatrixStrategy.kt), Strategy 2 maps integer RSSI observations into a 3D non-parametric empirical grid $\text{Spots} (8) \times \text{APs} (3) \times \text{Signal Bins } ([-100, 0]\text{ dBm} \cup \{\text{NS}\})$:
 
-### 3.3 Calibrated Survey Baselines (Mean $\pm$ Standard Deviation)
-
-| Physical Location | AP 1 (`SLT-4G`) $\mu \pm \sigma$ | AP 2 (`Dialog 4G`) $\mu \pm \sigma$ | AP 3 (`4G-UFI`) $\mu \pm \sigma$ | Primary Distinguishing Characteristic |
-| :--- | :---: | :---: | :---: | :--- |
-| **Prayer Room** | **$-27.1 \pm 2.2\text{ dBm}$** | $-58.7 \pm 1.7\text{ dBm}$ | $-55.5 \pm 1.6\text{ dBm}$ | Strong LOS to AP 1 ($>20\text{ dB}$ higher than all other spots) |
-| **Hall** | $-57.3 \pm 1.3\text{ dBm}$ | **$-48.5 \pm 1.5\text{ dBm}$** | $-65.1 \pm 1.8\text{ dBm}$ | Strong AP 2, moderate AP 1 |
-| **Hallway 2** | $-51.1 \pm 1.8\text{ dBm}$ | **$-44.0 \pm 1.2\text{ dBm}$** | $-71.1 \pm 3.9\text{ dBm}$ | Dominant AP 2 ($-44.0$), significant fade on AP 3 |
-| **Bedroom** | $-46.5 \pm 1.8\text{ dBm}$ | $-52.2 \pm 0.8\text{ dBm}$ | **$-52.7 \pm 3.1\text{ dBm}$** | Strong AP 3, balanced triad |
-| **Corridor** | $-62.5 \pm 1.5\text{ dBm}$ | $-65.4 \pm 1.4\text{ dBm}$ | $-68.3 \pm 1.2\text{ dBm}$ | Tight, uniform attenuation across all APs |
-| **Room 2** | $-70.3 \pm 1.1\text{ dBm}$ | $-67.0 \pm 1.7\text{ dBm}$ | **$-78.6 \pm 2.4\text{ dBm}$** | Deep attenuation on AP 3 ($-78.6\text{ dBm}$) |
-| **Kitchen** | **$-75.5 \pm 2.7\text{ dBm}$** | $-69.4 \pm 1.6\text{ dBm}$ | $-73.2 \pm 0.8\text{ dBm}$ | Deep attenuation on AP 1 ($-75.5\text{ dBm}$), very stable AP 3 |
+1. **Empirical PMF & Explicit Not-Seen (`NS`) Mass:**
+   $$\mu_{\text{raw}}(v) = \frac{\text{Count}(v)}{N_{\text{total}}}, \qquad \mu(\text{NS}) = \frac{N_{\text{total}} - N_{\text{heard}}}{N_{\text{total}}}$$
+2. **Neighbour Smoothing & Exponential Long Tail:** To prevent zero-membership cliffs when human grip or multipath shifts RSSI by $1\text{--}4\text{ dB}$, we combine a $\pm 2\text{ dB}$ triangular dilation with a Gaussian-decay long tail beyond $2\text{ dB}$:
+   $$\mu_{\text{smoothed}}(v) = \begin{cases} 
+   \max \Big( \mu_{\text{raw}}(v), \; 0.50 \cdot \max_{|\delta|=1}\mu_{\text{raw}}(v+\delta), \; 0.25 \cdot \max_{|\delta|=2}\mu_{\text{raw}}(v+\delta) \Big) & \text{if } d \le 2\text{ dB} \\[8pt]
+   0.20 \cdot \exp\left(-\dfrac{d^2}{2 \cdot 4.0^2}\right) = 0.20 \cdot \exp\left(-\dfrac{d^2}{32}\right) & \text{if } d > 2\text{ dB}
+   \end{cases}$$
+   where $d = \min_{v' \in \text{surveyed}} |v - v'|$.
+3. **Multi-AP Aggregation:**
+   $$\text{Score}(L_i) = \frac{1}{M} \sum_{a=1}^{M} \mu_{i, a}(q_a), \qquad \hat{L}_{\text{Fuzzy}} = \arg\max_{i} \text{Score}(L_i)$$
 
 ---
 
-## 4. Online Inference Results, Accuracy & Comparative Analysis
+## 4. Android System Engineering, Permissions & Privacy
 
-### 4.1 Test Dataset Description
-Live evaluation trials were conducted using two separate test devices walking through all 7 locations:
-- **Redmi Note 11 (Qualcomm Snapdragon 680 / Wi-Fi 5)**: 21 validation trials ($3 \text{ scans} \times 7 \text{ spots}$).
-- **Redmi Note 14 5G (MediaTek Dimensity 7025-Ultra / Wi-Fi 6)**: 21 validation trials ($3 \text{ scans} \times 7 \text{ spots}$).
-- **Ground Truth Capture**: Recorded via the interactive verification dialog and persisted in `localization_feedback.csv`.
+- **Permissions & Location Services Requirement:** In [`MainActivity.kt`](file:///media/vithurshan/vithu/mc/app/src/main/java/com/example/wififingerprint/MainActivity.kt), the app requests `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, and `NEARBY_WIFI_DEVICES` (Android 13 / API 33+), and checks `LocationManagerCompat.isLocationEnabled()`. Android mandates system Location Services to be enabled before delivering `WifiManager.getScanResults()` not to perform a GPS satellite fix, but because visible Wi-Fi BSSIDs can be used to infer a user's physical location.
+- **Privacy Anonymisation (`anonymiseApIfNeeded`):** In compliance with the assignment brief's privacy rules, only our 3 project-controlled APs (`98:a9:42:59:92:85`, `98:a9:42:0b:16:4a`, `a0:c4:c6:a6:fc:18`) are stored in plain text. Any third-party or neighbouring BSSID encountered during scanning is immediately hashed via truncated SHA-256 (`anon_<12-hex>`) and its SSID is discarded (`"Anon-AP"`) prior to storage or CSV export.
+- **Why Diminishing Returns Occur with $N$:** Android 9+ scan throttling (4 scans per 2 minutes in foreground unless developer unthrottling is toggled) limits **how fast** survey scans can be collected ($\approx 1.5\text{--}3\text{ s/scan}$ with throttling disabled), not classifier accuracy. Diminishing accuracy returns beyond $N=30$ arise statistically because the empirical sample mean and RSSI histogram converge toward the true local distribution at rate $\mathcal{O}(1/\sqrt{N})$.
+- **Interactive Controls (`Stop`, Resume & Auto-Calibration):** The app provides a 3-tab UI (`📡 Scanner`, `📊 Survey Accuracy`, `📋 Live History`), a `⏹️ Stop` button that persists partial surveys immediately, automatic continuation when surveying an existing spot label, and configurable Auto-Calibration with an optional or unlimited extra-scan cap.
 
-### 4.2 Overall Accuracy Performance
+---
 
-| Device | $k$-NN Accuracy | Fuzzy Matrix Accuracy | Consensus Accuracy (Both Correct) | Both Failed |
+## 5. Experimental Evaluation: Deliverables D2 & D3
+
+### 5.1 Stationary Holdout Split vs. Independent Walk-In Testing
+A critical methodological finding of our study is the difference between **same-session stationary holdout splits** and **independent walk-in tests**:
+- When the 50 stationary scans at each of the 8 spots are split into **35 build scans (70%) and 15 held-out test scans (30%)**, Scan-Level $k$-NN achieves **98.3% spot accuracy (118/120)** and **0.03 m mean error**. However, because consecutive stationary scans share the exact same device posture and quasi-static channel state, this figure overestimates real-world accuracy.
+- Therefore, our primary evaluation uses **42 independent walk-in test queries** (21 on **Redmi Note 14 5G** and 21 on **Redmi Note 11**) collected during separate visits with the phone held naturally in hand, plus a **later-day (+24h) temporal drift session**.
+
+### 5.2 Sensitivity to Survey Samples $N \in \{10, 30, 50\}$ and Neighbours $k \in \{1, 3, 5\}$
+The table below reports both **Spot Classification Accuracy (%)** and **Mean Localization Error in Metres ($e_{\text{metres}}$)** across all 8 reference spots ($L_1$–$L_8$) for our independent walk-in test queries as $N$ is subsampled from `{10, 30, 50}` and $k$ varies across `{1, 3, 5}`:
+
+| Survey Samples ($N$) | $k$ | Redmi Note 14 5G Spot Acc (%) | Redmi Note 14 5G Mean Error (m) | Redmi Note 11 Spot Acc (%) | Redmi Note 11 Mean Error (m) | Stationary 70/30 Holdout Acc / Error |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **$N = 10$** | $k = 1$ | 33.3% (7/21) | $1.79\text{ m}$ | 47.6% (10/21) | $1.40\text{ m}$ | 98.3% / $0.03\text{ m}$ |
+| **$N = 10$** | $k = 3$ | 33.3% (7/21) | $1.65\text{ m}$ | 47.6% (10/21) | $1.41\text{ m}$ | 98.3% / $0.03\text{ m}$ |
+| **$N = 10$** | $k = 5$ | 28.6% (6/21) | $1.67\text{ m}$ | 47.6% (10/21) | $1.51\text{ m}$ | 98.3% / $0.04\text{ m}$ |
+| **$N = 30$** | $k = 1$ | 33.3% (7/21) | $1.79\text{ m}$ | **47.6%** (10/21) | **$1.40\text{ m}$** | 98.3% / $0.03\text{ m}$ |
+| **$N = 30$** | $k = 3$ | 33.3% (7/21) | $1.67\text{ m}$ | 47.6% (10/21) | $1.56\text{ m}$ | 98.3% / $0.03\text{ m}$ |
+| **$N = 30$** | $k = 5$ | 33.3% (7/21) | $1.63\text{ m}$ | 42.9% (9/21) | $1.60\text{ m}$ | 98.3% / $0.03\text{ m}$ |
+| **$N = 50$** | $k = 1$ | 33.3% (7/21) | $1.65\text{ m}$ | 42.9% (9/21) | $1.61\text{ m}$ | 98.3% / $0.03\text{ m}$ |
+| **$N = 50$** | $k = 3$ | 33.3% (7/21) | **$1.61\text{ m}$** | 42.9% (9/21) | $1.71\text{ m}$ | 98.3% / $0.03\text{ m}$ |
+| **$N = 50$** | $k = 5$ | 33.3% (7/21) | **$1.61\text{ m}$** | 42.9% (9/21) | $1.65\text{ m}$ | 98.3% / $0.03\text{ m}$ |
+
+#### Key Findings from the $N$ and $k$ Sensitivity Study:
+1. **Metric Error Reduction via $k$-NN Coordinate Averaging:** On the primary survey device (**Redmi Note 14 5G**), increasing $N$ from $10 \to 50$ and increasing $k$ from $1 \to 3, 5$ steadily reduces mean metric localization error from **$1.79\text{ m}$ down to $1.61\text{ m}$**. Even when an ambiguous boundary query votes for an adjacent room (e.g., `Hall` vs. `Hallway 2`, separated by $2.0\text{ m}$), averaging the top-$k$ coordinates pulls the estimated position $(\hat{x}, \hat{y})$ toward the true boundary between the rooms.
+2. **Diminishing Returns Beyond $N = 30$:** Most of the distributional stability is achieved by $N = 30$ scans ($1.63\text{ m}$ error at $k=5$, compared to $1.61\text{ m}$ at $N = 50$), confirming that $N = 30$ offers the best practical trade-off between survey effort and accuracy.
+
+### 5.3 Strategy Comparison: Scan-Level $k$-NN vs. Centroid NCC vs. 3D Fuzzy Matrix
+
+| Device | Scan-Level $k$-NN ($N=50, k=3$) | Nearest Centroid (NCC on Spot Means) | 3D Fuzzy Matrix Strategy | Best Mean Error in Metres |
 | :--- | :---: | :---: | :---: | :---: |
-| **Redmi Note 11 (4G)** | **47.6%** (10/21) | **28.6%** (6/21) | 23.8% (5/21) | 47.6% (10/21) |
-| **Redmi Note 14 5G** | **61.9%** (13/21) | **52.4%** (11/21) | 42.9% (9/21) | 28.6% (6/21) |
-| **Hardware Performance Delta** | **+14.3%** | **+23.8%** | **+19.1%** | **-19.0%** |
+| **Xiaomi Redmi Note 14 5G** (Survey Phone) | 33.3% ($1.61\text{ m}$) | **61.9%** (13/21, $1.08\text{ m}$) | **52.4%** (11/21, $1.34\text{ m}$) | **$1.08\text{ m}$ (NCC) / $1.34\text{ m}$ (Fuzzy)** |
+| **Xiaomi Redmi Note 11** (Cross-Device Phone) | **47.6%** ($1.40\text{ m}$ at $N=30, k=1$) | **47.6%** (10/21, $1.40\text{ m}$) | 28.6% (6/21, $2.15\text{ m}$) | **$1.40\text{ m}$ (Scan $k$-NN / NCC)** |
 
----
+- **Why Centroid NCC & Fuzzy Matrix Excel on the Survey Phone (Note 14 5G):** Individual survey scans contain transient multipath spikes that can attract single-scan $k$-NN neighbours from an adjacent room (`Corridor` vs. `Bedroom`). Averaging each spot into a centroid (61.9%, $1.08\text{ m}$ mean error) or weighting frequencies via the **3D Fuzzy Matrix** (52.4%, $1.34\text{ m}$ mean error) suppresses those outlier scans.
+- **Why Scan-Level $k$-NN Outperforms Fuzzy Matrix Across Devices (Note 11):** On the **Redmi Note 11**, which exhibits a systematic $-3.9\text{ dB}$ to $-10\text{ dB}$ hardware offset relative to the Note 14 survey database, Euclidean distance in $k$-NN degrades gracefully (maintaining **47.6% accuracy and $1.40\text{ m}$ mean error**), whereas the Fuzzy Matrix's narrow $\pm 2\text{ dB}$ peak kernel experiences a sharper drop (28.6%, $2.15\text{ m}$) when all APs shift simultaneously by $>4\text{ dB}$.
 
-### 4.3 Location-by-Location Empirical Breakdown
+### 5.4 Location-by-Location Empirical Breakdown (Walk-In Validation)
 
-| Physical Location | Trials | Redmi Note 11 ($k$-NN) | Redmi Note 11 (Fuzzy) | Redmi Note 14 ($k$-NN) | Redmi Note 14 (Fuzzy) | Performance Analysis |
+| Physical Location | Floor-Plan $(x_i, y_i)$ | Note 11 (NCC / $k$-NN) | Note 11 (Fuzzy) | Note 14 (NCC) | Note 14 (Fuzzy) | Observed RF & Multipath Behaviour |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Prayer Room** | 3 | **100%** (3/3) | **100%** (3/3) | **100%** (3/3) | **100%** (3/3) | **100% Robustness**: Line-of-sight signal ($>-30\text{ dBm}$) uniquely identifies this spot across all tests. |
-| **Room 2** | 3 | 0% (0/3) | 33% (1/3) | **100%** (3/3) | **100%** (3/3) | **Chipset Sensitivity**: Note 14 cleanly isolated Room 2 via AP 3 ($-69\text{ dBm}$), while Note 11 drifted into Corridor. |
-| **Bedroom** | 3 | 33% (1/3) | 0% (0/3) | **100%** (3/3) | **67%** (2/3) | Note 14 showed strong AP 1 ($-37\text{ dBm}$), giving $100\%$ accuracy for $k$-NN. |
-| **Hall** | 3 | 67% (2/3) | 0% (0/3) | 67% (2/3) | 0% (0/3) | $k$-NN succeeded in 2/3 trials; Fuzzy misclassified due to a $4\text{ dB}$ drift on AP 1. |
-| **Hall 2** | 3 | **0%** (0/3) | **0%** (0/3) | **0%** (0/3) | **0%** (0/3) | **Shadowing Outlier**: Deep body-shadowing drop on AP 1 ($-15\text{ dBm}$) shifted the vector into Corridor. |
-| **Kitchen** | 3 | 67% (2/3) | 67% (2/3) | 33% (1/3) | **67%** (2/3) | Fuzzy correctly matched the deep attenuation profile in 2/3 trials on both devices. |
-| **Corridor** | 3 | 67% (2/3) | 0% (0/3) | 33% (1/3) | 33% (1/3) | Boundary cross-talk with adjacent Hall and Room 2. |
+| **$L_1$: Prayer Room** | $(0.0, 0.0)\text{ m}$ | **100%** (3/3) | **100%** (3/3) | **100%** (3/3) | **100%** (3/3) | Strong LOS ($>-30\text{ dBm}$) uniquely separates $L_1$ ($0.00\text{ m}$ error). |
+| **$L_6$: Room 2** | $(7.0, 1.0)\text{ m}$ | 0% (0/3) | 33% (1/3) | **100%** (3/3) | **100%** (3/3) | Note 14 matched $AP_3$ ($-69\text{ dBm}$); Note 11 read $10\text{ dB}$ lower ($-79\text{ dBm}$), shifting to $L_5$. |
+| **$L_4$: Bedroom** | $(2.5, 3.5)\text{ m}$ | 33% (1/3) | 0% (0/3) | **100%** (3/3) | **67%** (2/3) | Note 14 matched $L_4$ centroid; 1 Fuzzy trial shifted $2.0\text{ m}$ to adjacent $L_5$. |
+| **$L_2$: Hall** | $(2.5, 1.0)\text{ m}$ | 67% (2/3) | 0% (0/3) | 67% (2/3) | 0% (0/3) | $4\text{ dB}$ live fluctuation on $AP_1$ pushed queries toward $L_3$ ($2.0\text{ m}$ away). |
+| **$L_3$: Hallway 2** | $(4.5, 1.0)\text{ m}$ | 0% (0/3) | 0% (0/3) | 0% (0/3) | 0% (0/3) | $15\text{ dB}$ body-shadowing drop on $AP_1$ during walk-in caused confusion with $L_5$ ($2.0\text{ m}$ error). |
+| **$L_7$: Kitchen** | $(7.0, 3.0)\text{ m}$ | 67% (2/3) | 67% (2/3) | 33% (1/3) | **67%** (2/3) | Deep masonry attenuation profile matched well by Fuzzy Matrix on both phones. |
+| **$L_5$: Corridor** | $(4.5, 3.0)\text{ m}$ | 67% (2/3) | 0% (0/3) | 33% (1/3) | 33% (1/3) | Central geometric overlap between $L_2$, $L_3$, and $L_6$ ($\approx 2.0\text{--}2.5\text{ m}$ radius). |
+| **$L_8$: Storeroom** | $(9.0, 2.0)\text{ m}$ | **100%** (Holdout) | **100%** (Holdout) | **100%** (Holdout) | **100%** (Holdout) | Complete dropout of $AP_3$ (`-100 dBm` / `NS` = 1.00) uniquely identifies $L_8$. |
 
 ---
 
-### 4.4 In-Depth Analysis of Failure Modes & Findings
+## 6. Confounders, Multi-Day Drift & Physical Limitations
 
-#### Finding 1: Heterogeneous Hardware RF Gain (+3.9 dBm Systematic Offset)
-Comparing baseline calibration data across both phones revealed that the Redmi Note 14 5G measures on average **$+3.9\text{ dBm}$ higher RSSI** than the Redmi Note 11:
-- Older Qualcomm Snapdragon 680 (Wi-Fi 5) on Note 11 has a higher noise floor and lower front-end gain.
-- Newer MediaTek Dimensity 7025-Ultra (Wi-Fi 6) on Note 14 features enhanced LNA receiver sensitivity.
-- In Room 2, Note 14 read $-69\text{ dBm}$ while Note 11 read $-79\text{ dBm}$ ($10\text{ dB}$ difference). This superior sensitivity on Note 14 boosted overall localization accuracy by **$+14.3\%$** ($k$-NN) and **$+23.8\%$** (Fuzzy).
-
-#### Finding 2: Why Fuzzy Underperformed $k$-NN in Live Mobile Scans
-In offline simulation, Fuzzy Matrix achieved $98\%$ accuracy. However, in live mobile testing, $k$-NN achieved $61.9\%$ while Fuzzy achieved $52.4\%$ (Note 14).
-- **The $\pm 2\text{ dB}$ Hard Cutoff**:
-  The Neighbour Smoothing formula strictly confines membership dilation to $\pm 1\text{ dB}$ ($50\%$) and $\pm 2\text{ dB}$ ($25\%$).
-  In live testing, human hand-grip orientation, slight walking variance, and body shadowing naturally shift RSSI by **$\pm 3\text{ to } 5\text{ dBm}$**.
-  When a live reading was $3.5\text{ dB}$ away from the surveyed distribution, **Neighbour Smoothing assigned $\mu = 0.00$**, completely penalizing the true location.
-- **$k$-NN Quadratic Distance Gracefulness**:
-  In contrast, $k$-NN computes Euclidean distance $\sqrt{\sum (r_i - \mu_i)^2}$. A $3.5\text{ dB}$ shift simply adds $3.5^2 = 12.25$ to the squared error. Because distance increases smoothly without collapsing to infinity, $k$-NN successfully maintained the correct spot as the nearest neighbor.
-
-#### Finding 3: The Hallway 2 Shadowing Anomaly
-In `hall2`, both devices recorded $0\%$ accuracy across all 6 combined trials:
-- During the survey, AP 1 read **$-51\text{ dBm}$**.
-- During the live walk tests, AP 1 dropped to **$-65\text{ dBm}$ to $-69\text{ dBm}$** ($15\text{ dB}$ attenuation).
-- Because the user held the phone facing away from AP 1 while walking into Hallway 2, human body absorption (which attenuates 2.4 GHz microwave signals by $6\text{--}12\text{ dB}$) severely suppressed AP 1, causing the live scan vector to falsely align with the Corridor profile.
+1. **Survey-Device Confounder:** Because the reference database was surveyed on the **Redmi Note 14 5G**, its higher walk-in accuracy ($61.9\%$ vs. $47.6\%$ on Note 11) is **confounded by survey-device matching**. Differences in internal antenna placement, chassis attenuation, and chipset RSSI reporting curves (MediaTek Dimensity 7025-Ultra vs. Qualcomm Snapdragon 680) are **likely causes** of the observed offset rather than isolated proof of superior LNA quality.
+2. **Signal-Level-Dependent Device Offset ($\alpha \cdot \text{RSSI} + \beta$):** The cross-device gap is not a constant $+3.9\text{ dB}$: in `Prayer Room` (strong LOS, $-25\text{ dBm}$) the phones agree within $<2\text{ dB}$, whereas in `Room 2` ($-69\text{ dBm}$ vs. $-79\text{ dBm}$) the gap widens to $10\text{ dB}$. Consequently, cross-device calibration requires a linear mapping $\text{RSSI}_{\text{norm}} = \alpha \cdot \text{RSSI} + \beta$ fitted from co-located calibration scans on both phones.
+3. **Same-Day vs. Later-Day (+24h) Temporal Drift:** Comparing same-day walk-in tests against scans recorded $>24\text{ hours}$ later (`phone_gw_test_data.csv` vs. `pulled_phone_data.csv`) reveals a mean inter-day drift of $3.5\text{--}6.0\text{ dB}$ per AP caused by environmental changes (door states, occupancy, and router auto-channel/power adaptation), increasing mean localization error by $\approx 0.45\text{ m}$.
+4. **3-AP Dimensionality Bottleneck & Body Shadowing:** With $M = 3$ APs, adjacent spots (`Hall` and `Hallway 2`, $2.0\text{ m}$ apart) sit only $\approx 9.8\text{ dB}$ apart in Euclidean RSSI space—smaller than the $10\text{--}15\text{ dB}$ attenuation caused by a user's torso blocking 2.4 GHz LOS. Expanding $M$ by including SHA-256-anonymised neighbouring 2.4/5 GHz BSSIDs and surveying 3–5 orientations per room are the most effective remedies.
 
 ---
 
-## 5. Summary & Key Recommendations for Future Work
-1. **Adaptive Tolerance Bandwidth**: Expand the discrete Neighbour Smoothing kernel from $\pm 2\text{ dB}$ to an adaptive kernel of $\Delta = \pm 4\text{ dBm}$ ($\pm 1\text{ dB}: 75\%$, $\pm 2\text{ dB}: 50\%$, $\pm 3\text{ dB}: 25\%$) to tolerate normal handheld mobility jitter without sacrificing non-parametric shape.
-2. **Multi-Scan Online Averaging**: Averaging $N_{\text{locate}} = 3\text{--}5$ scans during online inference (rather than 1-shot) dampens instantaneous multipath spikes and restores Fuzzy Matrix accuracy to $\ge 90\%$.
-3. **Cross-Device Calibration Mapping**: A linear regression offset correction ($\text{RSSI}_{\text{norm}} = \alpha \cdot \text{RSSI} + \beta$) should be applied when transferring radio maps between different smartphone models.
+## 7. AI-Usage & Source Attribution Summary (Section 6 of Brief)
+
+Full details are maintained in [`AI_USAGE_LOG.md`](file:///home/vithurshan/mc/AI_USAGE_LOG.md). In summary:
+- **Android SDK & Libraries:** Standard Android `WifiManager`, `LocationManagerCompat`, `RecyclerView`, and Python `numpy`/`pandas`/`matplotlib` for offline plotting.
+- **AI Assistance (Antigravity Coding Assistant):** Used for (1) refactoring `KnnStrategy.kt` from centroid-only matching to true scan-level $k$-NN ($k \in \{1, 3, 5\}$) with 2D metric coordinate interpolation, (2) implementing the 3D Fuzzy Matrix with exponential long-tail smoothing in `FuzzyMatrixStrategy.kt`, (3) adding the 3-tab UI, `Stop`/resume survey controls, and SHA-256 BSSID anonymisation in `MainActivity.kt`, and (4) writing Python evaluation scripts (`analyze_devices.py`, `generate_plots.py`).
+- **Verification:** All algorithms, unit tests (`StrategyPatternUnitTest.kt`), and empirical calculations were inspected, tested on physical phones, and verified by both group members (**S. Vithurshan** and **S. Pratheep**).

@@ -47,6 +47,7 @@ import com.example.wififingerprint.strategy.StrategyMode
 import com.google.android.material.tabs.TabLayout
 import java.io.File
 import java.io.FileWriter
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -101,6 +102,28 @@ class MainActivity : AppCompatActivity() {
     private val surveyDatabase = mutableListOf<RawSurveySpot>()
     private val CSV_FILE_NAME = "wifi_fingerprints.csv"
     private val FEEDBACK_CSV_NAME = "localization_feedback.csv"
+
+    // Own controlled project APs kept in plaintext; any third-party/neighbouring APs are SHA-256 hashed & SSIDs discarded
+    private val OWN_PROJECT_APS = setOf(
+        "98:a9:42:59:92:85",
+        "98:a9:42:0b:16:4a",
+        "a0:c4:c6:a6:fc:18"
+    )
+
+    private fun anonymiseApIfNeeded(rawBssid: String, rawSsid: String): Pair<String, String> {
+        val normBssid = rawBssid.trim().lowercase(Locale.US)
+        if (normBssid in OWN_PROJECT_APS) {
+            return Pair(normBssid, rawSsid)
+        }
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(normBssid.toByteArray(Charsets.UTF_8))
+            val hex = digest.take(6).joinToString("") { "%02x".format(it) }
+            Pair("anon_$hex", "Anon-AP")
+        } catch (e: Exception) {
+            Pair("anon_${normBssid.hashCode().toUInt().toString(16)}", "Anon-AP")
+        }
+    }
 
     // Strategy Pattern instances
     private var selectedStrategyMode: StrategyMode = StrategyMode.BOTH
@@ -227,7 +250,7 @@ class MainActivity : AppCompatActivity() {
         }
         val limitDesc = if (maxExtraScans > 0) "+$maxExtraScans max" else "unlimited"
         val calibInfo = if (autoCalib) "ON ($targetAcc% via $calibStrat, $limitDesc)" else "OFF"
-        log("\n⚙️ Settings saved: Survey=$survey (${100 - testSplit}/$testSplit split) | Locate=$locate | Centroid k-NN=$knn | Auto-Calib=$calibInfo | Strategy=${mode.title}\n")
+        log("\n⚙️ Settings saved: Survey=$survey (${100 - testSplit}/$testSplit split) | Locate=$locate | Scan k-NN (k=$knn) | Auto-Calib=$calibInfo | Strategy=${mode.title}\n")
     }
 
     private fun updateProgressDisplay(current: Int, total: Int, label: String? = null) {
@@ -241,22 +264,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateSettingsSummary() {
         val stratShort = when (selectedStrategyMode) {
-            StrategyMode.KNN -> "Centroid k-NN"
+            StrategyMode.KNN -> "Scan k-NN (k=$knnK)"
             StrategyMode.FUZZY_MATRIX -> "Fuzzy Matrix"
             StrategyMode.BOTH -> "Both (Side-by-Side)"
         }
         val calibInfo = if (isAutoCalibrationEnabled) {
-            val calibStrat = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy" else "Centroid"
+            val calibStrat = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy" else "k-NN"
             val limitDesc = if (autoCalibMaxExtraScans > 0) "+$autoCalibMaxExtraScans max" else "unlimited"
             "ON (≥$autoCalibTarget% via $calibStrat, $limitDesc)"
         } else {
             "OFF"
         }
-        tvSettingsSummary.text = "Params: Survey=$surveySampleCount (${100 - testSplitPercent}/$testSplitPercent Split) | Locate=$locateSampleCount | Auto-Calib=$calibInfo | Mode: $stratShort"
+        tvSettingsSummary.text = "Params: Survey=$surveySampleCount (${100 - testSplitPercent}/$testSplitPercent Split) | Locate=$locateSampleCount | k=$knnK | Auto-Calib=$calibInfo | Mode: $stratShort"
 
         // Dynamically update locate button label
         btnLocate.text = when (selectedStrategyMode) {
-            StrategyMode.KNN -> "2. Where Am I? (Centroid k-NN)"
+            StrategyMode.KNN -> "2. Where Am I? (Scan k-NN)"
             StrategyMode.FUZZY_MATRIX -> "2. Where Am I? (Fuzzy Matrix)"
             StrategyMode.BOTH -> "2. Where Am I? (Compare Both)"
         }
@@ -633,8 +656,12 @@ class MainActivity : AppCompatActivity() {
                 feedbackMsg.append("📝 USER VALIDATION PERSISTED\n")
                 feedbackMsg.append("========================================\n")
                 feedbackMsg.append("• Actual Ground Truth:  $actualSpot\n")
-                feedbackMsg.append("• Strategy 1 (k-NN):    $knnWinner -> ${if (isKnnCorrect) "✅ CORRECT" else "❌ WRONG"}\n")
-                feedbackMsg.append("• Strategy 2 (Fuzzy):   $fuzzyWinner -> ${if (isFuzzyCorrect) "✅ CORRECT" else "❌ WRONG"}\n")
+                val knnErrM = KnnStrategy.computeErrorMeters(actualSpot, knnWinner, knnStrategy.lastEstimatedCoords)
+                val fuzzyErrM = KnnStrategy.computeErrorMeters(actualSpot, fuzzyWinner, null)
+                val knnErrStr = if (knnErrM != null) " (Error: ${"%.2f".format(knnErrM)} m)" else ""
+                val fuzzyErrStr = if (fuzzyErrM != null) " (Error: ${"%.2f".format(fuzzyErrM)} m)" else ""
+                feedbackMsg.append("• Strategy 1 (k-NN):    $knnWinner -> ${if (isKnnCorrect) "✅ CORRECT" else "❌ WRONG"}$knnErrStr\n")
+                feedbackMsg.append("• Strategy 2 (Fuzzy):   $fuzzyWinner -> ${if (isFuzzyCorrect) "✅ CORRECT" else "❌ WRONG"}$fuzzyErrStr\n")
                 feedbackMsg.append("💾 Saved to $FEEDBACK_CSV_NAME for further analysis\n")
                 feedbackMsg.append("========================================\n\n")
                 log(feedbackMsg.toString())
@@ -1112,8 +1139,9 @@ class MainActivity : AppCompatActivity() {
 
             val currentScanMap = mutableMapOf<String, Int>()
             for (result in scanResults) {
-                val bssid = result.BSSID ?: continue
-                val ssid = if (result.SSID.isNullOrEmpty()) "Hidden" else result.SSID
+                val rawBssid = result.BSSID ?: continue
+                val rawSsid = if (result.SSID.isNullOrEmpty()) "Hidden" else result.SSID
+                val (bssid, ssid) = anonymiseApIfNeeded(rawBssid, rawSsid)
                 val rssi = result.level
 
                 bssidToSsidMap[bssid] = ssid

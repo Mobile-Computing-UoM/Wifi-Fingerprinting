@@ -142,4 +142,28 @@ class StrategyPatternUnitTest {
         assertEquals(0.55, hallRanking.scoreMetric, 0.001)
         assertTrue(fuzzyResult.confidenceMargin!! > 0.0)
     }
+
+    @Test
+    fun testScanLevelKnn_kVotingAndMetricCoordinates() {
+        // Test k=3 majority voting and 2D coordinate estimation across individual stored scans
+        val knn3 = KnnStrategy(k = 3, maxSamplesPerSpot = 30)
+        knn3.buildModel(sampleSurveys)
+
+        val queryNearHall = LiveQueryScan(
+            readings = mapOf("ap1" to -68, "ap2" to -74, "ap3" to -90)
+        )
+        val res = knn3.infer(queryNearHall)
+        assertEquals("Hall", res.predictedSpot)
+        assertNotNull(knn3.lastEstimatedCoords)
+
+        // Hall ground truth is (2.5, 1.0); error to Hall should be 0.0m
+        val errToHall = KnnStrategy.computeErrorMeters("Hall", res.predictedSpot, knn3.lastEstimatedCoords)
+        assertNotNull(errToHall)
+        assertEquals(0.0, errToHall!!, 0.01)
+
+        // Error if actual spot was Kitchen (7.0, 3.0) should be > 4.0m
+        val errToKitchen = KnnStrategy.computeErrorMeters("Kitchen", res.predictedSpot, knn3.lastEstimatedCoords)
+        assertNotNull(errToKitchen)
+        assertTrue(errToKitchen!! > 4.0)
+    }
 }
