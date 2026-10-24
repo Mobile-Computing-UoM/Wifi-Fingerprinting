@@ -19,6 +19,7 @@ import android.graphics.Typeface
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -33,6 +34,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.example.wififingerprint.strategy.FuzzyMatrixStrategy
 import com.example.wififingerprint.strategy.KnnStrategy
 import com.example.wififingerprint.strategy.LiveQueryScan
@@ -40,6 +43,7 @@ import com.example.wififingerprint.strategy.LocalizationResult
 import com.example.wififingerprint.strategy.RawApMeasurement
 import com.example.wififingerprint.strategy.RawSurveySpot
 import com.example.wififingerprint.strategy.StrategyMode
+import com.google.android.material.tabs.TabLayout
 import java.io.File
 import java.io.FileWriter
 import java.text.SimpleDateFormat
@@ -55,6 +59,15 @@ data class Fingerprint(
 )
 
 class MainActivity : AppCompatActivity() {
+    private lateinit var tabLayout: TabLayout
+    private lateinit var layoutScannerView: LinearLayout
+    private lateinit var layoutHistoryView: LinearLayout
+    private lateinit var tvHistoryStats: TextView
+    private lateinit var btnRefreshHistory: Button
+    private lateinit var tvEmptyHistory: TextView
+    private lateinit var rvFeedbackHistory: RecyclerView
+    private var historyAdapter: FeedbackHistoryAdapter? = null
+
     private lateinit var editSpotName: EditText
     private lateinit var tvLogs: TextView
     private lateinit var scrollView: ScrollView
@@ -407,6 +420,9 @@ class MainActivity : AppCompatActivity() {
                 val isFuzzyCorrect = (actualSpot == fuzzyWinner)
 
                 saveEvaluationRecord(actualSpot, resKnn, resFuzzy, query)
+                if (historyAdapter != null) {
+                    refreshHistoryView()
+                }
 
                 val feedbackMsg = StringBuilder()
                 feedbackMsg.append("\n========================================\n")
@@ -489,6 +505,135 @@ class MainActivity : AppCompatActivity() {
                 log("\n" + matrixText + "\n")
             }
             .show()
+    }
+
+    /**
+     * Parses a CSV line safely respecting quotation marks around fields.
+     */
+    private fun parseCsvLine(line: String): List<String> {
+        val result = mutableListOf<String>()
+        val sb = StringBuilder()
+        var inQuotes = false
+        for (ch in line) {
+            when {
+                ch == '\"' -> inQuotes = !inQuotes
+                ch == ',' && !inQuotes -> {
+                    result.add(sb.toString().trim())
+                    sb.setLength(0)
+                }
+                else -> sb.append(ch)
+            }
+        }
+        result.add(sb.toString().trim())
+        return result
+    }
+
+    /**
+     * Loads all persisted inference evaluation records from localization_feedback.csv.
+     */
+    private fun loadFeedbackHistory(): List<FeedbackHistoryRecord> {
+        val file = File(getExternalFilesDir(null), FEEDBACK_CSV_NAME)
+        if (!file.exists()) return emptyList()
+
+        val records = mutableListOf<FeedbackHistoryRecord>()
+        file.forEachLine { line ->
+            if (line.isNotBlank() && !line.startsWith("timestamp_ms")) {
+                val parts = parseCsvLine(line)
+                if (parts.size >= 9) {
+                    val timestampMs = parts[0].toLongOrNull() ?: 0L
+                    val isoTime = parts[1]
+                    val actualSpot = parts[2]
+                    val knnPredicted = parts[3]
+                    val knnCorrect = (parts[4] == "1" || parts[4].equals("true", ignoreCase = true))
+                    val knnMargin = parts[5].toDoubleOrNull() ?: 0.0
+                    val fuzzyPredicted = parts[6]
+                    val fuzzyCorrect = (parts[7] == "1" || parts[7].equals("true", ignoreCase = true))
+                    val fuzzyMargin = parts[8].toDoubleOrNull() ?: 0.0
+                    val querySignals = parts.getOrNull(9)?.trim('\"') ?: ""
+
+                    records.add(
+                        FeedbackHistoryRecord(
+                            timestampMs = timestampMs,
+                            isoTime = isoTime,
+                            actualSpot = actualSpot,
+                            knnPredicted = knnPredicted,
+                            knnCorrect = knnCorrect,
+                            knnMargin = knnMargin,
+                            fuzzyPredicted = fuzzyPredicted,
+                            fuzzyCorrect = fuzzyCorrect,
+                            fuzzyMargin = fuzzyMargin,
+                            querySignals = querySignals,
+                            rawCsvLine = line
+                        )
+                    )
+                }
+            }
+        }
+        return records.reversed() // Most recent validations first
+    }
+
+    /**
+     * Deletes a single specific row from localization_feedback.csv and updates UI.
+     */
+    private fun deleteFeedbackRecord(record: FeedbackHistoryRecord, position: Int) {
+        val file = File(getExternalFilesDir(null), FEEDBACK_CSV_NAME)
+        if (file.exists()) {
+            val lines = file.readLines()
+            val remainingLines = lines.filter { line ->
+                line.startsWith("timestamp_ms") || line.trim() != record.rawCsvLine.trim()
+            }
+            file.writeText(remainingLines.joinToString("\n") + if (remainingLines.isNotEmpty()) "\n" else "")
+        }
+
+        historyAdapter?.removeAt(position)
+        updateHistoryStats()
+        Toast.makeText(this, "Deleted history row for '${record.actualSpot}'", Toast.LENGTH_SHORT).show()
+        log("🗑️ Deleted feedback history row for '${record.actualSpot}'\n")
+    }
+
+    /**
+     * Updates header statistics for inference history.
+     */
+    private fun updateHistoryStats() {
+        val count = historyAdapter?.itemCount ?: 0
+        if (count == 0) {
+            tvEmptyHistory.visibility = View.VISIBLE
+            rvFeedbackHistory.visibility = View.GONE
+            tvHistoryStats.text = "Inference History (0 records)"
+        } else {
+            tvEmptyHistory.visibility = View.GONE
+            rvFeedbackHistory.visibility = View.VISIBLE
+            val records = historyAdapter?.records ?: emptyList()
+            val knnCorrectCount = records.count { it.knnCorrect }
+            val fuzzyCorrectCount = records.count { it.fuzzyCorrect }
+            val knnPct = (knnCorrectCount.toDouble() / count * 100).toInt()
+            val fuzzyPct = (fuzzyCorrectCount.toDouble() / count * 100).toInt()
+            tvHistoryStats.text = "Records: $count | k-NN Acc: $knnPct% | Fuzzy Acc: $fuzzyPct%"
+        }
+    }
+
+    /**
+     * Reloads and displays the inference history list.
+     */
+    private fun refreshHistoryView() {
+        val records = loadFeedbackHistory().toMutableList()
+        if (historyAdapter == null) {
+            historyAdapter = FeedbackHistoryAdapter(records) { item, pos ->
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Delete Validation Record?")
+                    .setMessage("Permanently remove this evaluation record for actual spot '${item.actualSpot}' from CSV?")
+                    .setPositiveButton("Delete") { _, _ ->
+                        deleteFeedbackRecord(item, pos)
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            rvFeedbackHistory.layoutManager = LinearLayoutManager(this)
+            rvFeedbackHistory.adapter = historyAdapter
+        } else {
+            historyAdapter?.updateList(records)
+        }
+        updateHistoryStats()
     }
 
     // Save fingerprint entry into wifi_fingerprints.csv including ALL raw measurements
@@ -711,6 +856,42 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        tabLayout = findViewById(R.id.tabLayout)
+        layoutScannerView = findViewById(R.id.layoutScannerView)
+        layoutHistoryView = findViewById(R.id.layoutHistoryView)
+        tvHistoryStats = findViewById(R.id.tvHistoryStats)
+        btnRefreshHistory = findViewById(R.id.btnRefreshHistory)
+        tvEmptyHistory = findViewById(R.id.tvEmptyHistory)
+        rvFeedbackHistory = findViewById(R.id.rvFeedbackHistory)
+
+        tabLayout.addTab(tabLayout.newTab().setText("📡 Scanner"))
+        tabLayout.addTab(tabLayout.newTab().setText("📋 Inference History"))
+
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab?) {
+                if (tab?.position == 1) {
+                    layoutScannerView.visibility = View.GONE
+                    layoutHistoryView.visibility = View.VISIBLE
+                    refreshHistoryView()
+                } else {
+                    layoutScannerView.visibility = View.VISIBLE
+                    layoutHistoryView.visibility = View.GONE
+                }
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab?) {}
+
+            override fun onTabReselected(tab: TabLayout.Tab?) {
+                if (tab?.position == 1) {
+                    refreshHistoryView()
+                }
+            }
+        })
+
+        btnRefreshHistory.setOnClickListener {
+            refreshHistoryView()
+        }
 
         editSpotName = findViewById(R.id.editSpotName)
         scrollView = findViewById(R.id.scrollView)

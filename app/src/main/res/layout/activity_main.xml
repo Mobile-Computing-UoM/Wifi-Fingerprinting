@@ -4,21 +4,22 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="12dp">
 
+    <!-- Header bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="6dp">
+        android:layout_marginBottom="4dp">
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/wi_fi_fingerprint_scanner"
-            android:textSize="18sp"
+            android:textSize="17sp"
             android:textStyle="bold" />
 
         <Button
@@ -29,127 +30,205 @@
             android:textSize="12sp" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tvSettingsSummary"
+    <!-- Top Tabs: Scanner vs History -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Params: Survey=20 | Locate=10 | k-NN=1"
-        android:textSize="12sp"
-        android:textColor="#555555"
-        android:layout_marginBottom="8dp" />
-
-    <EditText
-        android:id="@+id/editSpotName"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="@string/enter_spot_label_e_g_spot_1" />
-
-    <Button
-        android:id="@+id/btnSurvey"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/_1_record_survey_sample"
-        android:layout_marginTop="8dp" />
-
-    <Button
-        android:id="@+id/btnLocate"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/_2_where_am_i_k_nn_match"
-        android:layout_marginTop="8dp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="8dp">
-
-        <Button
-            android:id="@+id/btnViewMatrix"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="📊 View Matrix"
-            android:backgroundTint="#3F51B5"
-            android:textColor="#FFFFFF"
-            android:layout_marginEnd="4dp" />
-
-        <Button
-            android:id="@+id/btnClearData"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="🗑️ Clear DB"
-            android:backgroundTint="#D32F2F"
-            android:textColor="#FFFFFF"
-            android:layout_marginStart="4dp" />
-    </LinearLayout>
-
-    <!-- Progress Bar Section -->
-    <LinearLayout
-        android:id="@+id/layoutProgress"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layout_marginTop="10dp"
-        android:layout_marginBottom="6dp"
         android:background="#E8EAF6"
-        android:padding="8dp">
+        android:layout_marginBottom="6dp" />
+
+    <!-- TAB 1 CONTENT: Scanner Controls & Logs -->
+    <LinearLayout
+        android:id="@+id/layoutScannerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvSettingsSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Params: Survey=20 | Locate=10 | k-NN=1"
+            android:textSize="12sp"
+            android:textColor="#555555"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/editSpotName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/enter_spot_label_e_g_spot_1" />
+
+        <Button
+            android:id="@+id/btnSurvey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/_1_record_survey_sample"
+            android:layout_marginTop="6dp" />
+
+        <Button
+            android:id="@+id/btnLocate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/_2_where_am_i_k_nn_match"
+            android:layout_marginTop="6dp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:layout_marginTop="6dp">
 
-            <TextView
-                android:id="@+id/tvProgressLabel"
+            <Button
+                android:id="@+id/btnViewMatrix"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Survey Progress"
-                android:textStyle="bold"
-                android:textSize="13sp"
-                android:textColor="#1A237E" />
+                android:text="📊 View Matrix"
+                android:backgroundTint="#3F51B5"
+                android:textColor="#FFFFFF"
+                android:layout_marginEnd="4dp" />
 
-            <TextView
-                android:id="@+id/tvProgressText"
-                android:layout_width="wrap_content"
+            <Button
+                android:id="@+id/btnClearData"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="0/20 (0% completed)"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:textColor="#0D47A1" />
+                android:layout_weight="1"
+                android:text="🗑️ Clear DB"
+                android:backgroundTint="#D32F2F"
+                android:textColor="#FFFFFF"
+                android:layout_marginStart="4dp" />
         </LinearLayout>
 
-        <ProgressBar
-            android:id="@+id/progressBar"
-            style="?android:attr/progressBarStyleHorizontal"
+        <!-- Progress Bar Section -->
+        <LinearLayout
+            android:id="@+id/layoutProgress"
             android:layout_width="match_parent"
-            android:layout_height="12dp"
-            android:layout_marginTop="6dp"
-            android:max="100"
-            android:progress="0"
-            android:indeterminate="false"
-            android:progressTint="#1976D2" />
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="6dp"
+            android:background="#E8EAF6"
+            android:padding="8dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tvProgressLabel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Survey Progress"
+                    android:textStyle="bold"
+                    android:textSize="12sp"
+                    android:textColor="#1A237E" />
+
+                <TextView
+                    android:id="@+id/tvProgressText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0/20 (0% completed)"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#0D47A1" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/progressBar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="10dp"
+                android:layout_marginTop="4dp"
+                android:max="100"
+                android:progress="0"
+                android:indeterminate="false"
+                android:progressTint="#1976D2" />
+        </LinearLayout>
+
+        <!-- Terminal Logs -->
+        <ScrollView
+            android:id="@+id/scrollView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="4dp"
+            android:background="#F0F0F0"
+            android:padding="8dp">
+
+            <TextView
+                android:id="@+id/tvLogs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Logs will appear here..."
+                android:textColor="@color/black"
+                android:fontFamily="monospace"
+                android:textSize="12sp" />
+        </ScrollView>
     </LinearLayout>
 
-    <ScrollView
-        android:id="@+id/scrollView"
+    <!-- TAB 2 CONTENT: Inference History & Validation Records -->
+    <LinearLayout
+        android:id="@+id/layoutHistoryView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="4dp"
-        android:background="#F0F0F0"
-        android:padding="8dp">
+        android:orientation="vertical"
+        android:visibility="gone">
 
-        <TextView
-            android:id="@+id/tvLogs"
+        <!-- History Action Bar -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Logs will appear here..."
-            android:textColor="@color/black"
-            android:fontFamily="monospace"
-            android:textSize="12sp" />
-    </ScrollView>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#E8EAF6"
+            android:padding="8dp"
+            android:layout_marginBottom="6dp">
+
+            <TextView
+                android:id="@+id/tvHistoryStats"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Inference Validation History"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#1A237E" />
+
+            <Button
+                android:id="@+id/btnRefreshHistory"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="🔄 Refresh"
+                android:textSize="11sp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp" />
+        </LinearLayout>
+
+        <!-- Empty State -->
+        <TextView
+            android:id="@+id/tvEmptyHistory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No inference history records yet.\nRun 'Where Am I?' and validate your location to record history."
+            android:gravity="center"
+            android:textSize="13sp"
+            android:textColor="#757575"
+            android:padding="24dp"
+            android:visibility="gone" />
+
+        <!-- History RecyclerView -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvFeedbackHistory"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+    </LinearLayout>
+
 </LinearLayout>

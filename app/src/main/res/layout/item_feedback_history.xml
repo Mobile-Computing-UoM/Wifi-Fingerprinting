@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@android:drawable/dialog_holo_light_frame"
+    android:padding="12dp"
+    android:layout_marginBottom="8dp">
+
+    <!-- Header: Ground Truth Spot, Time, Delete Button -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="6dp">
+
+        <TextView
+            android:id="@+id/tvHistoryActualSpot"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="📍 Actual: Hall"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:textColor="#1A237E" />
+
+        <TextView
+            android:id="@+id/tvHistoryTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="11:53 AM"
+            android:textSize="11sp"
+            android:textColor="#616161"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnDeleteHistoryRow"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:text="🗑️"
+            android:textSize="13sp"
+            android:padding="0dp"
+            android:backgroundTint="#D32F2F"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- k-NN Result Row -->
+    <TextView
+        android:id="@+id/tvHistoryKnnResult"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="• k-NN: Hall (✅ Correct) [Gap: 2.1 dBm]"
+        android:textSize="12sp"
+        android:textColor="#212121"
+        android:layout_marginBottom="2dp" />
+
+    <!-- Fuzzy Matrix Result Row -->
+    <TextView
+        android:id="@+id/tvHistoryFuzzyResult"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="• Fuzzy: Hall (✅ Correct) [Margin: +0.40]"
+        android:textSize="12sp"
+        android:textColor="#212121"
+        android:layout_marginBottom="4dp" />
+
+    <!-- Query Signals Vector -->
+    <TextView
+        android:id="@+id/tvHistorySignals"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="📡 Signals: SLT:-57 | Dialog:-48 | UFI:-65"
+        android:fontFamily="monospace"
+        android:textSize="10sp"
+        android:textColor="#616161" />
+</LinearLayout>
