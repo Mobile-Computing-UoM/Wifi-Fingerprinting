@@ -45,6 +45,20 @@
                 android:layout_height="wrap_content"
                 android:text="Strategy 2: Fuzzy 3D Matrix"
                 android:textSize="13sp" />
+
+            <RadioButton
+                android:id="@+id/rbStrategyPattern"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Strategy 3: Cross-Device Pattern Matching"
+                android:textSize="13sp" />
+
+            <RadioButton
+                android:id="@+id/rbStrategyAll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="All 3 Strategies (Side-by-Side Comparison)"
+                android:textSize="13sp" />
         </RadioGroup>
 
         <View

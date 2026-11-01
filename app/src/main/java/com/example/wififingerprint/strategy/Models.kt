@@ -65,7 +65,9 @@ data class LocalizationResult(
 enum class StrategyMode(val key: String, val title: String) {
     KNN("KNN", "Strategy 1: k-NN Only"),
     FUZZY_MATRIX("FUZZY_MATRIX", "Strategy 2: Fuzzy 3D Matrix Only"),
-    BOTH("BOTH", "Both Strategies (Side-by-Side Comparison)");
+    PATTERN("PATTERN", "Strategy 3: Cross-Device Pattern Only"),
+    BOTH("BOTH", "k-NN vs Fuzzy Matrix"),
+    ALL("ALL", "All Strategies Comparison");
 
     companion object {
         fun fromKey(key: String?): StrategyMode {

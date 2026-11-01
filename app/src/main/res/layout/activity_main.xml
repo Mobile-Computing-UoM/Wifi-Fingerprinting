@@ -55,6 +55,49 @@
             android:textColor="#555555"
             android:layout_marginBottom="6dp" />
 
+        <!-- Map Source Selector (Local vs Imported) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#EDE7F6"
+            android:padding="6dp"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Radio Map:"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:textColor="#311B92"
+                android:layout_marginEnd="8dp" />
+
+            <RadioGroup
+                android:id="@+id/rgMapSource"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rbSourceLocal"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📱 Local"
+                    android:textSize="12sp"
+                    android:checked="true"
+                    android:layout_marginEnd="12dp" />
+
+                <RadioButton
+                    android:id="@+id/rbSourceImported"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📥 Imported Ref"
+                    android:textSize="12sp" />
+            </RadioGroup>
+        </LinearLayout>
+
         <EditText
             android:id="@+id/editSpotName"
             android:layout_width="match_parent"
@@ -116,6 +159,36 @@
                 android:text="🗑️ Clear DB"
                 android:backgroundTint="#D32F2F"
                 android:textColor="#FFFFFF"
+                android:layout_marginStart="4dp" />
+        </LinearLayout>
+
+        <!-- Cross-Device Sharing Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp">
+
+            <Button
+                android:id="@+id/btnShareMap"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="📤 Share Map"
+                android:backgroundTint="#00796B"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btnImportMap"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="📥 Import Ref"
+                android:backgroundTint="#00897B"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
                 android:layout_marginStart="4dp" />
         </LinearLayout>
 

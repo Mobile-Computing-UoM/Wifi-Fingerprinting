@@ -29,6 +29,8 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -37,10 +39,19 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.wififingerprint.data.BssidNormalizer
+import com.example.wififingerprint.data.DeviceInfo
+import com.example.wififingerprint.data.FingerprintFile
+import com.example.wififingerprint.data.FingerprintFileMetadata
+import com.example.wififingerprint.data.ReferenceRepository
+import com.example.wififingerprint.share.ImportManager
+import com.example.wififingerprint.share.ShareManager
+import com.example.wififingerprint.strategy.FingerprintSource
 import com.example.wififingerprint.strategy.FuzzyMatrixStrategy
 import com.example.wififingerprint.strategy.KnnStrategy
 import com.example.wififingerprint.strategy.LiveQueryScan
 import com.example.wififingerprint.strategy.LocalizationResult
+import com.example.wififingerprint.strategy.PatternStrategy
 import com.example.wififingerprint.strategy.RawApMeasurement
 import com.example.wififingerprint.strategy.RawSurveySpot
 import com.example.wififingerprint.strategy.StrategyMode
@@ -92,6 +103,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnClearData: Button
     private lateinit var btnSettings: Button
     private lateinit var btnViewMatrix: Button
+    private lateinit var btnShareMap: Button
+    private lateinit var btnImportMap: Button
+    private lateinit var rgMapSource: RadioGroup
+    private lateinit var rbSourceLocal: RadioButton
+    private lateinit var rbSourceImported: RadioButton
     private lateinit var tvSettingsSummary: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var tvProgressLabel: TextView
@@ -100,35 +116,35 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var wifiManager: WifiManager
     private val surveyDatabase = mutableListOf<RawSurveySpot>()
+    private val importedDatabase = mutableListOf<RawSurveySpot>()
+    private var importedMetadata: FingerprintFileMetadata? = null
+    private var activeMapSource: FingerprintSource = FingerprintSource.LOCAL
+    private lateinit var referenceRepository: ReferenceRepository
+    private lateinit var importManager: ImportManager
+
     private val CSV_FILE_NAME = "wifi_fingerprints.csv"
     private val FEEDBACK_CSV_NAME = "localization_feedback.csv"
 
-    // Own controlled project APs kept in plaintext; any third-party/neighbouring APs are SHA-256 hashed & SSIDs discarded
-    private val OWN_PROJECT_APS = setOf(
-        "98:a9:42:59:92:85",
-        "98:a9:42:0b:16:4a",
-        "a0:c4:c6:a6:fc:18"
-    )
+    // Launcher for selecting an exported Wi-Fi map to import as read-only reference
+    private val importFileLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            handleImportUri(uri)
+        }
+    }
 
     private fun anonymiseApIfNeeded(rawBssid: String, rawSsid: String): Pair<String, String> {
-        val normBssid = rawBssid.trim().lowercase(Locale.US)
-        if (normBssid in OWN_PROJECT_APS) {
-            return Pair(normBssid, rawSsid)
-        }
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-                .digest(normBssid.toByteArray(Charsets.UTF_8))
-            val hex = digest.take(6).joinToString("") { "%02x".format(it) }
-            Pair("anon_$hex", "Anon-AP")
-        } catch (e: Exception) {
-            Pair("anon_${normBssid.hashCode().toUInt().toString(16)}", "Anon-AP")
-        }
+        val norm = BssidNormalizer.normalizeBssid(rawBssid)
+        val displayLabel = BssidNormalizer.getDisplayLabel(rawBssid, rawSsid)
+        return Pair(norm, displayLabel)
     }
 
     // Strategy Pattern instances
     private var selectedStrategyMode: StrategyMode = StrategyMode.BOTH
     private val knnStrategy = KnnStrategy(1)
     private val fuzzyMatrixStrategy = FuzzyMatrixStrategy()
+    private val patternStrategy = PatternStrategy(minSharedAps = 2)
 
     // Dynamic WakeLock to keep screen on ONLY while surveying
     private var wakeLock: PowerManager.WakeLock? = null
@@ -188,10 +204,20 @@ class MainActivity : AppCompatActivity() {
     private val scanSnapshots = mutableListOf<Map<String, Int>>()
     private val scanHandler = Handler(Looper.getMainLooper())
 
+    private fun getActiveSurveyDatabase(): List<RawSurveySpot> {
+        return if (activeMapSource == FingerprintSource.IMPORTED) {
+            importedDatabase
+        } else {
+            surveyDatabase
+        }
+    }
+
     private fun rebuildStrategyModels() {
+        val activeSpots = getActiveSurveyDatabase()
         knnStrategy.k = knnK
-        knnStrategy.buildModel(surveyDatabase)
-        fuzzyMatrixStrategy.buildModel(surveyDatabase)
+        knnStrategy.buildModel(activeSpots)
+        fuzzyMatrixStrategy.buildModel(activeSpots)
+        patternStrategy.buildModel(activeSpots)
     }
 
     private fun loadSettings() {
@@ -266,7 +292,9 @@ class MainActivity : AppCompatActivity() {
         val stratShort = when (selectedStrategyMode) {
             StrategyMode.KNN -> "Scan k-NN (k=$knnK)"
             StrategyMode.FUZZY_MATRIX -> "Fuzzy Matrix"
-            StrategyMode.BOTH -> "Both (Side-by-Side)"
+            StrategyMode.PATTERN -> "Cross-Device Pattern"
+            StrategyMode.BOTH -> "k-NN vs Fuzzy Matrix"
+            StrategyMode.ALL -> "All 3 (Side-by-Side)"
         }
         val calibInfo = if (isAutoCalibrationEnabled) {
             val calibStrat = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy" else "k-NN"
@@ -275,13 +303,21 @@ class MainActivity : AppCompatActivity() {
         } else {
             "OFF"
         }
-        tvSettingsSummary.text = "Params: Survey=$surveySampleCount (${100 - testSplitPercent}/$testSplitPercent Split) | Locate=$locateSampleCount | k=$knnK | Auto-Calib=$calibInfo | Mode: $stratShort"
+        val sourceDesc = if (activeMapSource == FingerprintSource.IMPORTED) {
+            val dev = importedMetadata?.model ?: "Imported Ref"
+            "Map: 📥 $dev (${importedDatabase.size} spots)"
+        } else {
+            "Map: 📱 Local (${surveyDatabase.size} spots)"
+        }
+        tvSettingsSummary.text = "$sourceDesc | Survey=$surveySampleCount | Locate=$locateSampleCount | Mode: $stratShort"
 
         // Dynamically update locate button label
         btnLocate.text = when (selectedStrategyMode) {
             StrategyMode.KNN -> "2. Where Am I? (Scan k-NN)"
             StrategyMode.FUZZY_MATRIX -> "2. Where Am I? (Fuzzy Matrix)"
-            StrategyMode.BOTH -> "2. Where Am I? (Compare Both)"
+            StrategyMode.PATTERN -> "2. Where Am I? (Pattern Match)"
+            StrategyMode.BOTH -> "2. Where Am I? (Compare 2)"
+            StrategyMode.ALL -> "2. Where Am I? (Compare All 3)"
         }
     }
 
@@ -302,6 +338,8 @@ class MainActivity : AppCompatActivity() {
         val rbBoth = dialogView.findViewById<RadioButton>(R.id.rbStrategyBoth)
         val rbKnn = dialogView.findViewById<RadioButton>(R.id.rbStrategyKnn)
         val rbFuzzy = dialogView.findViewById<RadioButton>(R.id.rbStrategyFuzzy)
+        val rbPattern = dialogView.findViewById<RadioButton>(R.id.rbStrategyPattern)
+        val rbAll = dialogView.findViewById<RadioButton>(R.id.rbStrategyAll)
 
         editSurvey.setText(surveySampleCount.toString())
         editLocate.setText(locateSampleCount.toString())
@@ -326,6 +364,8 @@ class MainActivity : AppCompatActivity() {
             StrategyMode.BOTH -> rbBoth.isChecked = true
             StrategyMode.KNN -> rbKnn.isChecked = true
             StrategyMode.FUZZY_MATRIX -> rbFuzzy.isChecked = true
+            StrategyMode.PATTERN -> rbPattern?.isChecked = true
+            StrategyMode.ALL -> rbAll?.isChecked = true
         }
 
         androidx.appcompat.app.AlertDialog.Builder(this)
@@ -343,6 +383,8 @@ class MainActivity : AppCompatActivity() {
                 val chosenMode = when {
                     rbKnn.isChecked -> StrategyMode.KNN
                     rbFuzzy.isChecked -> StrategyMode.FUZZY_MATRIX
+                    rbPattern?.isChecked == true -> StrategyMode.PATTERN
+                    rbAll?.isChecked == true -> StrategyMode.ALL
                     else -> StrategyMode.BOTH
                 }
 
@@ -533,7 +575,13 @@ class MainActivity : AppCompatActivity() {
 
         // FINISHED: Unlock scanning state and re-enable buttons
         isScanningActive = false
-        btnSurvey.isEnabled = true
+        if (activeMapSource == FingerprintSource.IMPORTED) {
+            btnSurvey.isEnabled = false
+            editSpotName.isEnabled = false
+        } else {
+            btnSurvey.isEnabled = true
+            editSpotName.isEnabled = true
+        }
         btnLocate.isEnabled = true
         btnClearData.isEnabled = true
         btnSettings.isEnabled = true
@@ -545,20 +593,23 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Executes localization using the configured Strategy Pattern mode.
-     * Evaluates both algorithms to enable real-world side-by-side comparison
+     * Evaluates algorithms to enable real-world side-by-side comparison
      * and prompts the user for ground-truth validation feedback.
      */
     private fun executeLocalization(query: LiveQueryScan) {
-        if (surveyDatabase.isEmpty()) {
-            log("\n⚠️ No survey spots in database to compare against!\n")
+        val activeSpots = getActiveSurveyDatabase()
+        if (activeSpots.isEmpty()) {
+            val sourceName = if (activeMapSource == FingerprintSource.IMPORTED) "imported reference" else "local survey"
+            log("\n⚠️ No survey spots in $sourceName database to compare against!\n")
             return
         }
 
         rebuildStrategyModels()
 
-        // Evaluate both strategies on the exact same live query data
+        // Evaluate strategies on the exact same live query data
         val resKnn = knnStrategy.infer(query)
         val resFuzzy = fuzzyMatrixStrategy.infer(query)
+        val resPattern = patternStrategy.infer(query)
 
         when (selectedStrategyMode) {
             StrategyMode.KNN -> {
@@ -567,6 +618,10 @@ class MainActivity : AppCompatActivity() {
 
             StrategyMode.FUZZY_MATRIX -> {
                 log(resFuzzy.logOutput)
+            }
+
+            StrategyMode.PATTERN -> {
+                log(resPattern.logOutput)
             }
 
             StrategyMode.BOTH -> {
@@ -596,10 +651,41 @@ class MainActivity : AppCompatActivity() {
 
                 log(summary.toString())
             }
+
+            StrategyMode.ALL -> {
+                log(resKnn.logOutput)
+                log(resFuzzy.logOutput)
+                log(resPattern.logOutput)
+
+                val knnWinner = resKnn.predictedSpot ?: "None"
+                val fuzzyWinner = resFuzzy.predictedSpot ?: "None"
+                val patternWinner = resPattern.predictedSpot ?: "None"
+
+                val summary = StringBuilder()
+                summary.append("\n========================================\n")
+                summary.append("🏆 TRI-STRATEGY COMPARISON (Same Scan Data)\n")
+                summary.append("========================================\n")
+                val knnGap = if (resKnn.confidenceMargin != null) " (Gap: ${"%.2f".format(resKnn.confidenceMargin)} dBm)" else ""
+                val fuzzyMargin = if (resFuzzy.confidenceMargin != null) " (Winning Margin: +${"%.4f".format(resFuzzy.confidenceMargin)})" else ""
+                val patMargin = if (resPattern.confidenceMargin != null) " (Separation: ${"%.2f".format(resPattern.confidenceMargin)} dB)" else ""
+
+                summary.append("• Strategy 1 (k-NN):         $knnWinner$knnGap\n")
+                summary.append("• Strategy 2 (Fuzzy Matrix): $fuzzyWinner$fuzzyMargin\n")
+                summary.append("• Strategy 3 (Cross Pattern):$patternWinner$patMargin\n\n")
+
+                val allAgree = (knnWinner == fuzzyWinner && fuzzyWinner == patternWinner)
+                if (allAgree) {
+                    summary.append("🎯 UNANIMOUS AGREEMENT: All 3 algorithms predicted '$knnWinner'\n")
+                } else {
+                    summary.append("📊 DIVERGENT PREDICTION: Pattern predicts '$patternWinner' vs k-NN '$knnWinner'\n")
+                }
+                summary.append("========================================\n\n")
+                log(summary.toString())
+            }
         }
 
         // Prompt user for ground-truth accuracy feedback and persist outcome
-        showFeedbackDialog(query, resKnn, resFuzzy)
+        showFeedbackDialog(query, resKnn, resFuzzy, resPattern)
     }
 
     /**
@@ -609,13 +695,15 @@ class MainActivity : AppCompatActivity() {
     private fun showFeedbackDialog(
         query: LiveQueryScan,
         resKnn: LocalizationResult,
-        resFuzzy: LocalizationResult
+        resFuzzy: LocalizationResult,
+        resPattern: LocalizationResult
     ) {
-        val spotNames = surveyDatabase.map { it.spotLabel }.distinct().sorted()
+        val spotNames = getActiveSurveyDatabase().map { it.spotLabel }.distinct().sorted()
         if (spotNames.isEmpty()) return
 
         val knnWinner = resKnn.predictedSpot ?: "None"
         val fuzzyWinner = resFuzzy.predictedSpot ?: "None"
+        val patternWinner = resPattern.predictedSpot ?: "None"
 
         val dialogView = layoutInflater.inflate(R.layout.dialog_feedback, null, false)
         val tvSummary = dialogView.findViewById<TextView>(R.id.tvFeedbackSummary)
@@ -623,8 +711,13 @@ class MainActivity : AppCompatActivity() {
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, spotNames)
         spinnerActualSpot.adapter = adapter
 
-        // Pre-select predicted spot
-        val defaultSelection = if (spotNames.contains(fuzzyWinner)) fuzzyWinner else if (spotNames.contains(knnWinner)) knnWinner else spotNames.first()
+        // Pre-select predicted spot according to active mode
+        val preferredWinner = when (selectedStrategyMode) {
+            StrategyMode.PATTERN -> patternWinner
+            StrategyMode.KNN -> knnWinner
+            else -> if (spotNames.contains(fuzzyWinner)) fuzzyWinner else patternWinner
+        }
+        val defaultSelection = if (spotNames.contains(preferredWinner)) preferredWinner else spotNames.first()
         val defaultIdx = spotNames.indexOf(defaultSelection)
         if (defaultIdx >= 0) {
             spinnerActualSpot.setSelection(defaultIdx)
@@ -632,10 +725,12 @@ class MainActivity : AppCompatActivity() {
 
         val knnGapStr = if (resKnn.confidenceMargin != null) " (Gap: ${"%.2f".format(resKnn.confidenceMargin)} dBm)" else ""
         val fuzzyMarginStr = if (resFuzzy.confidenceMargin != null) " (Margin: +${"%.4f".format(resFuzzy.confidenceMargin)})" else ""
+        val patMarginStr = if (resPattern.confidenceMargin != null) " (Sep: ${"%.2f".format(resPattern.confidenceMargin)} dB)" else ""
 
         tvSummary.text = "Inference Predictions:\n" +
                 "• Strategy 1 (k-NN): $knnWinner$knnGapStr\n" +
-                "• Strategy 2 (Fuzzy): $fuzzyWinner$fuzzyMarginStr\n\n" +
+                "• Strategy 2 (Fuzzy): $fuzzyWinner$fuzzyMarginStr\n" +
+                "• Strategy 3 (Pattern): $patternWinner$patMarginStr\n\n" +
                 "Please select your ACTUAL current location to evaluate and persist accuracy:"
 
         androidx.appcompat.app.AlertDialog.Builder(this)
@@ -1059,10 +1154,11 @@ class MainActivity : AppCompatActivity() {
                             ?: (if (rawList.isNotEmpty()) rawList.average().roundToInt() else -100)
 
                         if (spot.isNotEmpty() && bssid.isNotEmpty()) {
+                            val normBssid = BssidNormalizer.normalizeBssid(bssid)
                             val currentMax = spotMaxScans[spot] ?: 0
                             spotMaxScans[spot] = maxOf(currentMax, count, rawList.size)
-                            spotMeasurements.getOrPut(spot) { mutableMapOf() }[bssid] =
-                                RawApMeasurement(bssid, ssid, rawList.ifEmpty { listOf(avg) }, avg)
+                            spotMeasurements.getOrPut(spot) { mutableMapOf() }[normBssid] =
+                                RawApMeasurement(normBssid, ssid, rawList.ifEmpty { listOf(avg) }, avg)
                         }
                     } else {
                         // Legacy 5-column format: timestamp,spot_label,bssid,ssid,avg_rssi
@@ -1073,10 +1169,13 @@ class MainActivity : AppCompatActivity() {
                             val ssid = parts[3].trim()
                             val rssi = parts.last().trim().toIntOrNull() ?: -100
 
-                            val currentMax = spotMaxScans[spot] ?: 0
-                            spotMaxScans[spot] = maxOf(currentMax, 1)
-                            spotMeasurements.getOrPut(spot) { mutableMapOf() }[bssid] =
-                                RawApMeasurement(bssid, ssid, listOf(rssi), rssi)
+                            if (spot.isNotEmpty() && bssid.isNotEmpty()) {
+                                val normBssid = BssidNormalizer.normalizeBssid(bssid)
+                                val currentMax = spotMaxScans[spot] ?: 0
+                                spotMaxScans[spot] = maxOf(currentMax, 1)
+                                spotMeasurements.getOrPut(spot) { mutableMapOf() }[normBssid] =
+                                    RawApMeasurement(normBssid, ssid, listOf(rssi), rssi)
+                            }
                         }
                     }
                 }
@@ -1160,6 +1259,67 @@ class MainActivity : AppCompatActivity() {
                 processAndSaveAveragedFingerprint()
             }
         }
+    }
+
+    private fun handleImportUri(uri: Uri) {
+        try {
+            val result = importManager.importFromUri(uri)
+            importedDatabase.clear()
+            importedDatabase.addAll(result.spots)
+            importedMetadata = result.metadata
+
+            log("\n📥 Successfully imported reference map from '${result.metadata.model}' (Device ID: ${result.metadata.deviceId})!\n")
+            log("📍 Loaded ${result.spots.size} reference spot(s) into local reference repository\n")
+
+            // Switch source to IMPORTED
+            rbSourceImported.isChecked = true
+            applySourceMode(FingerprintSource.IMPORTED)
+            Toast.makeText(this, "Imported ${result.spots.size} spots from ${result.metadata.model}!", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            log("\n❌ Failed to import reference map: ${e.message}\n")
+            Toast.makeText(this, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun applySourceMode(source: FingerprintSource) {
+        activeMapSource = source
+        if (source == FingerprintSource.IMPORTED) {
+            if (importedDatabase.isEmpty()) {
+                val latest = referenceRepository.loadLatestReference()
+                if (latest != null) {
+                    importedMetadata = latest.first
+                    importedDatabase.clear()
+                    importedDatabase.addAll(latest.second)
+                }
+            }
+
+            if (importedDatabase.isEmpty()) {
+                log("\n⚠️ No imported reference map found. Tap '📥 Import Ref' to import one from another phone.\n")
+                Toast.makeText(this, "No imported reference found. Please import one.", Toast.LENGTH_SHORT).show()
+                rbSourceLocal.isChecked = true
+                activeMapSource = FingerprintSource.LOCAL
+                applySourceMode(FingerprintSource.LOCAL)
+                return
+            }
+
+            // In Imported mode:
+            // Disable Surveying (survey database is read-only)
+            btnSurvey.isEnabled = false
+            btnSurvey.text = "🚫 Surveying Disabled (Imported Ref Mode)"
+            editSpotName.isEnabled = false
+            editSpotName.hint = "Locating via imported reference map (${importedDatabase.size} spots)"
+            log("🔄 Switched to Imported Reference Map: ${importedMetadata?.model} (${importedDatabase.size} spots)\n")
+        } else {
+            // Local mode
+            btnSurvey.isEnabled = true
+            btnSurvey.text = getString(R.string._1_record_survey_sample)
+            editSpotName.isEnabled = true
+            editSpotName.hint = getString(R.string.enter_spot_label_e_g_spot_1)
+            log("🔄 Switched to Local Device Survey Map (${surveyDatabase.size} spots)\n")
+        }
+
+        rebuildStrategyModels()
+        updateSettingsSummary()
     }
 
     private fun checkAndRequestPermissions() {
@@ -1348,6 +1508,15 @@ class MainActivity : AppCompatActivity() {
         btnClearData = findViewById(R.id.btnClearData)
         btnSettings = findViewById(R.id.btnSettings)
         btnViewMatrix = findViewById(R.id.btnViewMatrix)
+        btnShareMap = findViewById(R.id.btnShareMap)
+        btnImportMap = findViewById(R.id.btnImportMap)
+        rgMapSource = findViewById(R.id.rgMapSource)
+        rbSourceLocal = findViewById(R.id.rbSourceLocal)
+        rbSourceImported = findViewById(R.id.rbSourceImported)
+
+        referenceRepository = ReferenceRepository(this)
+        importManager = ImportManager(this)
+
         tvSettingsSummary = findViewById(R.id.tvSettingsSummary)
         progressBar = findViewById(R.id.progressBar)
         tvProgressLabel = findViewById(R.id.tvProgressLabel)
@@ -1379,6 +1548,54 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             showFuzzyMatrixDialog()
+        }
+
+        // Map Source Toggle: Local vs Imported Reference
+        rgMapSource.setOnCheckedChangeListener { _, checkedId ->
+            if (isScanningActive) {
+                Toast.makeText(this, "Cannot change map source while scanning!", Toast.LENGTH_SHORT).show()
+                if (activeMapSource == FingerprintSource.LOCAL) rbSourceLocal.isChecked = true
+                else rbSourceImported.isChecked = true
+                return@setOnCheckedChangeListener
+            }
+            if (checkedId == R.id.rbSourceImported) {
+                applySourceMode(FingerprintSource.IMPORTED)
+            } else {
+                applySourceMode(FingerprintSource.LOCAL)
+            }
+        }
+
+        // Share Button: Android Share Sheet to send survey map to other phones
+        btnShareMap.setOnClickListener {
+            if (isScanningActive) {
+                log("\n⚠️ A scan is already in progress, please wait...\n")
+                return@setOnClickListener
+            }
+            if (surveyDatabase.isEmpty()) {
+                Toast.makeText(this, "Local survey database is empty! Record spots first.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            try {
+                val shareIntent = ShareManager.createShareIntent(this, surveyDatabase)
+                startActivity(Intent.createChooser(shareIntent, "Share Wi-Fi Radio Map"))
+                log("📤 Opening Android Share Sheet for ${surveyDatabase.size} local spots...\n")
+            } catch (e: Exception) {
+                log("❌ Error sharing radio map: ${e.message}\n")
+                Toast.makeText(this, "Share error: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Import Button: Open document picker to load a reference map from another phone
+        btnImportMap.setOnClickListener {
+            if (isScanningActive) {
+                log("\n⚠️ A scan is already in progress, please wait...\n")
+                return@setOnClickListener
+            }
+            try {
+                importFileLauncher.launch(arrayOf("text/*", "*/*"))
+            } catch (e: Exception) {
+                log("❌ Error opening file picker: ${e.message}\n")
+            }
         }
 
         // Stop Survey Button: Stops current survey session immediately and persists data collected so far
@@ -1497,8 +1714,14 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            if (surveyDatabase.isEmpty()) {
-                log("\n⚠️ No spots saved! Survey at least one spot first.\n")
+            val activeSpots = getActiveSurveyDatabase()
+            if (activeSpots.isEmpty()) {
+                val msg = if (activeMapSource == FingerprintSource.IMPORTED) {
+                    "No imported reference spots found! Please import a reference map first."
+                } else {
+                    "No spots saved! Survey at least one spot first."
+                }
+                log("\n⚠️ $msg\n")
                 return@setOnClickListener
             }
 
