@@ -116,13 +116,9 @@ object PatternFeatures {
         val spotAvgMap = spot.bssidToAvgMap
         val sharedPairs = extractSharedAps(queryReadings, spotAvgMap)
 
-        if (sharedPairs.size < minSharedAps) {
-            return Pair(Double.MAX_VALUE, "Insufficient shared APs (${sharedPairs.size}/$minSharedAps)")
+        if (sharedPairs.isEmpty()) {
+            return Pair(Double.MAX_VALUE, "No shared APs")
         }
-
-        val pairwiseErr = meanPairwiseDifference(sharedPairs)
-        val rankErr = rankDistance(sharedPairs)
-        val meanCenteredErr = meanCenteredDistance(sharedPairs)
 
         // Relative missing-AP penalty: penalize only if an AP within 20 dB of the spot's strongest AP is absent
         val maxRefRssi = spotAvgMap.values.maxOrNull() ?: -100
@@ -132,6 +128,24 @@ object PatternFeatures {
                 missingPenalty += 2.0 // 2 dB penalty for dominant expected AP missing
             }
         }
+
+        // Graceful fallback for single shared AP (cannot compute pairwise/rank without at least 2 APs)
+        if (sharedPairs.size == 1) {
+            val singleDiff = abs(sharedPairs[0].first - sharedPairs[0].second).toDouble()
+            val composite = singleDiff + missingPenalty + 5.0
+            val details = "shared=1 (single-AP fallback), diff=%.1fdB, penalty=%.1fdB".format(
+                singleDiff, missingPenalty
+            )
+            return Pair(composite, details)
+        }
+
+        if (sharedPairs.size < minSharedAps) {
+            return Pair(Double.MAX_VALUE, "Insufficient shared APs (${sharedPairs.size}/$minSharedAps)")
+        }
+
+        val pairwiseErr = meanPairwiseDifference(sharedPairs)
+        val rankErr = rankDistance(sharedPairs)
+        val meanCenteredErr = meanCenteredDistance(sharedPairs)
 
         // Weighted composite score (lower is closer match)
         val composite = (0.50 * pairwiseErr) + (0.30 * meanCenteredErr) + (1.50 * rankErr) + missingPenalty

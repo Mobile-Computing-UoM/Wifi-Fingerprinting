@@ -120,4 +120,23 @@ class PatternStrategyUnitTest {
         assertEquals("Kitchen", result.predictedSpot)
         assertTrue(result.rankings[0].scoreMetric < result.rankings[1].scoreMetric)
     }
+
+    @Test
+    fun testPatternStrategy_singleSharedApFallback_predictsClosestSpot() {
+        // Only 1 AP is visible in query (ap1 = -52 dBm)
+        // Hall: ap1 = -50 (diff = 2)
+        // Kitchen: ap1 = -75 (diff = 23)
+        // Bedroom: ap1 = -85 (diff = 33)
+        val singleApQuery = LiveQueryScan(
+            readings = mapOf(
+                "ap1" to -52
+            )
+        )
+
+        val result = patternStrategy.infer(singleApQuery)
+        assertNotNull(result.predictedSpot)
+        assertEquals("Hall", result.predictedSpot)
+        assertTrue(result.rankings[0].scoreMetric < result.rankings[1].scoreMetric)
+        assertTrue(result.rankings[0].details.contains("single-AP fallback"))
+    }
 }
