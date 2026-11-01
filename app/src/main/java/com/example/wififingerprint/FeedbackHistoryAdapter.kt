@@ -6,23 +6,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-
-/**
- * Data structure representing a single persisted ground-truth validation entry.
- */
-data class FeedbackHistoryRecord(
-    val timestampMs: Long,
-    val isoTime: String,
-    val actualSpot: String,
-    val knnPredicted: String,
-    val knnCorrect: Boolean,
-    val knnMargin: Double,
-    val fuzzyPredicted: String,
-    val fuzzyCorrect: Boolean,
-    val fuzzyMargin: Double,
-    val querySignals: String,
-    val rawCsvLine: String
-)
+import com.example.wififingerprint.feedback.FeedbackHistoryRecord
 
 /**
  * RecyclerView adapter for displaying inference validation history with row-level delete.
@@ -38,6 +22,8 @@ class FeedbackHistoryAdapter(
         val btnDelete: Button = view.findViewById(R.id.btnDeleteHistoryRow)
         val tvKnnResult: TextView = view.findViewById(R.id.tvHistoryKnnResult)
         val tvFuzzyResult: TextView = view.findViewById(R.id.tvHistoryFuzzyResult)
+        val tvPatternResult: TextView = view.findViewById(R.id.tvHistoryPatternResult)
+        val tvContext: TextView = view.findViewById(R.id.tvHistoryContext)
         val tvSignals: TextView = view.findViewById(R.id.tvHistorySignals)
     }
 
@@ -63,6 +49,19 @@ class FeedbackHistoryAdapter(
         val fuzzyStatus = if (item.fuzzyCorrect) "✅ CORRECT" else "❌ WRONG"
         val fuzzyMarginStr = if (item.fuzzyMargin > 0.0) " (Margin: +${"%.4f".format(item.fuzzyMargin)})" else ""
         holder.tvFuzzyResult.text = "• Strategy 2 (Fuzzy): ${item.fuzzyPredicted} [$fuzzyStatus]$fuzzyMarginStr"
+
+        if (item.patternPredicted.isNotBlank()) {
+            val patStatus = if (item.patternCorrect) "✅ CORRECT" else "❌ WRONG"
+            val patMarginStr = if (item.patternMargin > 0.0) " (Sep: ${"%.2f".format(item.patternMargin)} dB)" else ""
+            holder.tvPatternResult.visibility = View.VISIBLE
+            holder.tvPatternResult.text = "• Strategy 3 (Pattern): ${item.patternPredicted} [$patStatus]$patMarginStr"
+        } else {
+            holder.tvPatternResult.visibility = View.GONE
+        }
+
+        val calibInfo = item.calibOffsetDb?.let { " | Calib: %+.1f dB".format(it) } ?: ""
+        val devInfo = if (item.refDeviceModel.isNotBlank()) " (${item.refDeviceModel})" else ""
+        holder.tvContext.text = "📱 Map: ${item.mapSource}$devInfo$calibInfo"
 
         // Format signals neatly
         val formattedSignals = item.querySignals.replace(";", " | ")

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="🎯 One-Spot Antenna Calibration"
+        android:textStyle="bold"
+        android:textSize="16sp"
+        android:textColor="#1A237E"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Stand at a known physical spot. The app will measure the signal contrast and compute this phone's hardware dB offset relative to the imported survey phone."
+        android:textSize="13sp"
+        android:textColor="#424242"
+        android:layout_marginBottom="14dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Select Current Physical Spot:"
+        android:textStyle="bold"
+        android:textSize="13sp"
+        android:textColor="#212121"
+        android:layout_marginBottom="4dp" />
+
+    <Spinner
+        android:id="@+id/spinnerCalibSpot"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:drawable/btn_dropdown"
+        android:layout_marginBottom="14dp" />
+
+    <TextView
+        android:id="@+id/tvCalibInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="ℹ️ Will take 10 scans and compute median antenna bias across shared APs."
+        android:textSize="12sp"
+        android:textColor="#555555" />
+
+</LinearLayout>

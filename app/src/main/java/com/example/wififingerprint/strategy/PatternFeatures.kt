@@ -124,11 +124,12 @@ object PatternFeatures {
         val rankErr = rankDistance(sharedPairs)
         val meanCenteredErr = meanCenteredDistance(sharedPairs)
 
-        // Missing AP penalty: APs seen strongly in reference (> -75) but missing in query
+        // Relative missing-AP penalty: penalize only if an AP within 20 dB of the spot's strongest AP is absent
+        val maxRefRssi = spotAvgMap.values.maxOrNull() ?: -100
         var missingPenalty = 0.0
         for ((bssid, sRssi) in spotAvgMap) {
-            if (!queryReadings.containsKey(bssid) && sRssi > -75) {
-                missingPenalty += 2.0 // 2 dB penalty for strong expected AP missing
+            if (!queryReadings.containsKey(bssid) && (maxRefRssi - sRssi <= 20)) {
+                missingPenalty += 2.0 // 2 dB penalty for dominant expected AP missing
             }
         }
 

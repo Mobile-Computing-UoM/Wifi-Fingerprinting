@@ -75,3 +75,12 @@ enum class StrategyMode(val key: String, val title: String) {
         }
     }
 }
+
+/**
+ * Active Wi-Fi scan collection mode.
+ */
+enum class ScanMode {
+    SURVEY,
+    LOCATE,
+    CALIBRATE
+}

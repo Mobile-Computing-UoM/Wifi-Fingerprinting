@@ -46,6 +46,12 @@ import com.example.wififingerprint.data.FingerprintFileMetadata
 import com.example.wififingerprint.data.ReferenceRepository
 import com.example.wififingerprint.share.ImportManager
 import com.example.wififingerprint.share.ShareManager
+import com.example.wififingerprint.calibration.CalibrationResult
+import com.example.wififingerprint.calibration.CalibrationStore
+import com.example.wififingerprint.calibration.DeviceCalibration
+import com.example.wififingerprint.calibration.OffsetCalibrator
+import com.example.wififingerprint.feedback.FeedbackCsv
+import com.example.wififingerprint.feedback.FeedbackHistoryRecord
 import com.example.wififingerprint.strategy.FingerprintSource
 import com.example.wififingerprint.strategy.FuzzyMatrixStrategy
 import com.example.wififingerprint.strategy.KnnStrategy
@@ -54,6 +60,7 @@ import com.example.wififingerprint.strategy.LocalizationResult
 import com.example.wififingerprint.strategy.PatternStrategy
 import com.example.wififingerprint.strategy.RawApMeasurement
 import com.example.wififingerprint.strategy.RawSurveySpot
+import com.example.wififingerprint.strategy.ScanMode
 import com.example.wififingerprint.strategy.StrategyMode
 import com.google.android.material.tabs.TabLayout
 import java.io.File
@@ -105,9 +112,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnViewMatrix: Button
     private lateinit var btnShareMap: Button
     private lateinit var btnImportMap: Button
+    private lateinit var btnCalibrate: Button
     private lateinit var rgMapSource: RadioGroup
     private lateinit var rbSourceLocal: RadioButton
     private lateinit var rbSourceImported: RadioButton
+    private var targetCalibSpot: String = ""
     private lateinit var tvSettingsSummary: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var tvProgressLabel: TextView
@@ -196,7 +205,8 @@ class MainActivity : AppCompatActivity() {
     private var autoCalibStrategy = "FUZZY_MATRIX" // "FUZZY_MATRIX" or "KNN"
 
     private var currentSampleCount = 0
-    private var isSurveying = true // true = Survey mode, false = Locate mode
+    private var currentScanMode: ScanMode = ScanMode.SURVEY
+    private val isSurveying: Boolean get() = currentScanMode == ScanMode.SURVEY
     private var isScanningActive = false // Only true when user explicitly pressed a button
 
     private val sampleBuffer = mutableMapOf<String, MutableList<Int>>()
@@ -305,7 +315,15 @@ class MainActivity : AppCompatActivity() {
         }
         val sourceDesc = if (activeMapSource == FingerprintSource.IMPORTED) {
             val dev = importedMetadata?.model ?: "Imported Ref"
-            "Map: 📥 $dev (${importedDatabase.size} spots)"
+            val refId = importedMetadata?.deviceId ?: ""
+            val calib = if (refId.isNotEmpty()) CalibrationStore.getCalibration(this, refId) else null
+            val calibTag = if (calib != null) {
+                val sign = if (calib.offsetDb >= 0) "+" else ""
+                " [🎯 Calib: $sign${"%.1f".format(Locale.US, calib.offsetDb)} dB]"
+            } else {
+                " [⚠️ Uncalibrated]"
+            }
+            "Map: 📥 $dev (${importedDatabase.size} spots)$calibTag"
         } else {
             "Map: 📱 Local (${surveyDatabase.size} spots)"
         }
@@ -319,6 +337,141 @@ class MainActivity : AppCompatActivity() {
             StrategyMode.BOTH -> "2. Where Am I? (Compare 2)"
             StrategyMode.ALL -> "2. Where Am I? (Compare All 3)"
         }
+    }
+
+    private fun showCalibrationDialog() {
+        val activeSpots = importedDatabase.map { it.spotLabel }.distinct().sorted()
+        if (activeSpots.isEmpty()) {
+            Toast.makeText(this, "No imported reference spots found to calibrate against!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val dialogView = layoutInflater.inflate(R.layout.dialog_calibration, null, false)
+        val spinnerSpot = dialogView.findViewById<Spinner>(R.id.spinnerCalibSpot)
+        val tvInfo = dialogView.findViewById<TextView>(R.id.tvCalibInfo)
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, activeSpots)
+        spinnerSpot.adapter = adapter
+
+        val refId = importedMetadata?.deviceId ?: ""
+        val existingCalib = if (refId.isNotEmpty()) CalibrationStore.getCalibration(this, refId) else null
+        if (existingCalib != null) {
+            val sign = if (existingCalib.offsetDb >= 0) "+" else ""
+            tvInfo.text = "ℹ️ Current calibration: $sign${"%.1f".format(Locale.US, existingCalib.offsetDb)} dB (calibrated at '${existingCalib.spotLabel}' with ${existingCalib.sharedAps} APs).\nSelecting a spot and tapping 'Start' will recalibrate."
+        }
+
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎯 One-Spot Antenna Calibration")
+            .setView(dialogView)
+            .setPositiveButton("Start Calibration (10 scans)") { _, _ ->
+                val selectedSpot = spinnerSpot.selectedItem?.toString() ?: activeSpots.first()
+                startCalibrationScan(selectedSpot)
+            }
+            .setNegativeButton("Cancel", null)
+
+        if (existingCalib != null) {
+            builder.setNeutralButton("Reset Offset") { _, _ ->
+                CalibrationStore.clearCalibration(this, refId)
+                applySourceMode(FingerprintSource.IMPORTED)
+                log("🎯 Cleared calibration offset for reference device: $refId\n")
+                Toast.makeText(this, "Calibration reset to 0 dB", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        builder.show()
+    }
+
+    private fun startCalibrationScan(spotLabel: String) {
+        targetCalibSpot = spotLabel
+        currentScanMode = ScanMode.CALIBRATE
+        isScanningActive = true
+        userRequestedStop = false
+
+        btnSurvey.isEnabled = false
+        btnLocate.isEnabled = false
+        btnCalibrate.isEnabled = false
+        btnClearData.isEnabled = false
+        btnSettings.isEnabled = false
+        btnViewMatrix.isEnabled = false
+        btnStopSurvey.visibility = View.GONE
+
+        acquireScreenWakeLock()
+        sampleBuffer.clear()
+        bssidToSsidMap.clear()
+        scanSnapshots.clear()
+        currentSampleCount = 0
+        activeTargetSamples = 10
+
+        updateProgressDisplay(0, activeTargetSamples, "Calibrating at '$spotLabel'...")
+
+        log("\n========================================\n")
+        log("🎯 ONE-SPOT ANTENNA CALIBRATION STARTED\n")
+        log("• Reference Spot: '$spotLabel'\n")
+        log("• Number of Scans: $activeTargetSamples\n")
+        log("• Hold phone still at this physical spot...\n")
+        log("========================================\n")
+
+        triggerWifiScan()
+    }
+
+    private fun showCalibrationResultDialog(result: CalibrationResult) {
+        if (!result.isValid) {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("⚠️ Calibration Failed")
+                .setMessage(result.warningMessage ?: "Insufficient shared APs with reference spot '${result.spotLabel}'.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        val refId = importedMetadata?.deviceId ?: "unknown"
+        val diffDetails = result.perApDiffs.joinToString("\n") {
+            val ssid = bssidToSsidMap[it.bssid] ?: "AP"
+            val sign = if (it.diffDb >= 0) "+" else ""
+            "• $ssid (${it.bssid.takeLast(8)}): Live ${it.liveRssi} dBm vs Ref ${it.refRssi} dBm ($sign${it.diffDb} dB)"
+        }
+
+        val msg = StringBuilder()
+        msg.append("Reference Spot: ${result.spotLabel}\n")
+        msg.append("Shared APs: ${result.sharedApCount}\n\n")
+        val sign = if (result.medianOffsetDb >= 0) "+" else ""
+        msg.append("Computed Antenna Bias:\n")
+        msg.append("• Median Offset: $sign${"%.1f".format(Locale.US, result.medianOffsetDb)} dB\n")
+        msg.append("• Mean Offset:   $sign${"%.1f".format(Locale.US, result.meanOffsetDb)} dB\n")
+        msg.append("• StdDev (Spread): ${"%.1f".format(Locale.US, result.stdDevDb)} dB\n\n")
+
+        if (result.warningMessage != null) {
+            msg.append("⚠️ ${result.warningMessage}\n\n")
+        }
+
+        msg.append("AP Differences (Live - Ref):\n")
+        msg.append(diffDetails)
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎯 Calibration Results")
+            .setMessage(msg.toString())
+            .setPositiveButton("✅ Save & Apply Offset") { _, _ ->
+                val calib = DeviceCalibration(
+                    refDeviceId = refId,
+                    offsetDb = result.medianOffsetDb,
+                    spotLabel = result.spotLabel,
+                    sharedAps = result.sharedApCount,
+                    stdDevDb = result.stdDevDb,
+                    timestampMs = System.currentTimeMillis()
+                )
+                CalibrationStore.saveCalibration(this, calib)
+                applySourceMode(FingerprintSource.IMPORTED)
+
+                log("\n========================================\n")
+                log("🎯 CALIBRATION OFFSET APPLIED\n")
+                log("• Reference Device: $refId\n")
+                log("• Calibrated Spot: '${result.spotLabel}' (${result.sharedApCount} shared APs)\n")
+                log("• Median Offset: $sign${"%.1f".format(Locale.US, result.medianOffsetDb)} dB\n")
+                log("• Signals on this phone will be shifted by -$sign${"%.1f".format(Locale.US, result.medianOffsetDb)} dB for k-NN and Fuzzy matching\n")
+                log("========================================\n\n")
+                Toast.makeText(this, "Offset applied: $sign${"%.1f".format(Locale.US, result.medianOffsetDb)} dB", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Discard", null)
+            .show()
     }
 
     private fun showSettingsDialog() {
@@ -418,159 +571,178 @@ class MainActivity : AppCompatActivity() {
             processedMeasurements.add(ApMeasurement(bssid, ssid, rawReadings, avg))
         }
 
-        if (isSurveying) {
-            val spot = editSpotName.text.toString().trim()
-            val totalScans = scanSnapshots.size
-            val testScansCount = if (totalScans >= 2) maxOf(1, (totalScans * testSplitPercent) / 100) else 0
-            val trainScansCount = maxOf(1, totalScans - testScansCount)
+        when (currentScanMode) {
+            ScanMode.SURVEY -> {
+                val spot = editSpotName.text.toString().trim()
+                val totalScans = scanSnapshots.size
+                val testScansCount = if (totalScans >= 2) maxOf(1, (totalScans * testSplitPercent) / 100) else 0
+                val trainScansCount = maxOf(1, totalScans - testScansCount)
 
-            val trainSnapshots = scanSnapshots.take(trainScansCount)
-            val testSnapshots = scanSnapshots.drop(trainScansCount)
+                val trainSnapshots = scanSnapshots.take(trainScansCount)
+                val testSnapshots = scanSnapshots.drop(trainScansCount)
 
-            // Build candidate spot model from train scans only
-            val trainApMap = mutableMapOf<String, MutableList<Int>>()
-            for (scan in trainSnapshots) {
-                for ((bssid, rssi) in scan) {
-                    trainApMap.getOrPut(bssid) { mutableListOf() }.add(rssi)
+                // Build candidate spot model from train scans only
+                val trainApMap = mutableMapOf<String, MutableList<Int>>()
+                for (scan in trainSnapshots) {
+                    for ((bssid, rssi) in scan) {
+                        trainApMap.getOrPut(bssid) { mutableListOf() }.add(rssi)
+                    }
                 }
-            }
 
-            val trainMeasurements = trainApMap.map { (bssid, readings) ->
-                RawApMeasurement(
-                    bssid = bssid,
-                    ssid = bssidToSsidMap[bssid] ?: "Unknown",
-                    rawReadings = readings,
-                    avgRssi = readings.average().roundToInt()
-                )
-            }
-            val candidateSpot = RawSurveySpot(spot, trainMeasurements, trainScansCount)
-            val candidateDatabase = surveyDatabase.filter { !it.spotLabel.equals(spot, ignoreCase = true) } + candidateSpot
+                val trainMeasurements = trainApMap.map { (bssid, readings) ->
+                    RawApMeasurement(
+                        bssid = bssid,
+                        ssid = bssidToSsidMap[bssid] ?: "Unknown",
+                        rawReadings = readings,
+                        avgRssi = readings.average().roundToInt()
+                    )
+                }
+                val candidateSpot = RawSurveySpot(spot, trainMeasurements, trainScansCount)
+                val candidateDatabase = surveyDatabase.filter { !it.spotLabel.equals(spot, ignoreCase = true) } + candidateSpot
 
-            val evalKnnStrategy = KnnStrategy(knnK)
-            evalKnnStrategy.buildModel(candidateDatabase)
-            val evalFuzzyStrategy = FuzzyMatrixStrategy()
-            evalFuzzyStrategy.buildModel(candidateDatabase)
+                val evalKnnStrategy = KnnStrategy(knnK)
+                evalKnnStrategy.buildModel(candidateDatabase)
+                val evalFuzzyStrategy = FuzzyMatrixStrategy()
+                evalFuzzyStrategy.buildModel(candidateDatabase)
 
-            var knnCorrect = 0
-            var fuzzyCorrect = 0
-            for (testScan in testSnapshots) {
-                val query = LiveQueryScan(testScan, bssidToSsidMap)
-                val knnRes = evalKnnStrategy.infer(query)
-                val fuzzyRes = evalFuzzyStrategy.infer(query)
+                var knnCorrect = 0
+                var fuzzyCorrect = 0
+                for (testScan in testSnapshots) {
+                    val query = LiveQueryScan(testScan, bssidToSsidMap)
+                    val knnRes = evalKnnStrategy.infer(query)
+                    val fuzzyRes = evalFuzzyStrategy.infer(query)
 
-                if (knnRes.predictedSpot == spot) knnCorrect++
-                if (fuzzyRes.predictedSpot == spot) fuzzyCorrect++
-            }
+                    if (knnRes.predictedSpot == spot) knnCorrect++
+                    if (fuzzyRes.predictedSpot == spot) fuzzyCorrect++
+                }
 
-            val knnAcc = if (testScansCount > 0) (knnCorrect.toDouble() / testScansCount) * 100.0 else 100.0
-            val fuzzyAcc = if (testScansCount > 0) (fuzzyCorrect.toDouble() / testScansCount) * 100.0 else 100.0
-            val benchmarkAcc = if (autoCalibStrategy == "FUZZY_MATRIX") fuzzyAcc else knnAcc
+                val knnAcc = if (testScansCount > 0) (knnCorrect.toDouble() / testScansCount) * 100.0 else 100.0
+                val fuzzyAcc = if (testScansCount > 0) (fuzzyCorrect.toDouble() / testScansCount) * 100.0 else 100.0
+                val benchmarkAcc = if (autoCalibStrategy == "FUZZY_MATRIX") fuzzyAcc else knnAcc
 
-            // Auto-Calibration condition check (skipped if user explicitly requested stop)
-            val extraScansDone = activeTargetSamples - surveySampleCount
-            val canExtend = if (autoCalibMaxExtraScans > 0) {
-                extraScansDone < autoCalibMaxExtraScans
-            } else {
-                true // 0 = Unlimited!
-            }
-
-            if (isAutoCalibrationEnabled && !userRequestedStop && benchmarkAcc < autoCalibTarget && canExtend) {
-                val nextTarget = activeTargetSamples + 5
-                activeTargetSamples = nextTarget
-                val stratName = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy Matrix" else "Centroid k-NN"
-                val limitNotice = if (autoCalibMaxExtraScans > 0) " (Max limit: +$autoCalibMaxExtraScans extra scans)" else " (Unlimited mode)"
-                log("\n⚠️ Auto-Calibration: $stratName accuracy is ${"%.1f".format(benchmarkAcc)}% (< target $autoCalibTarget%).\n")
-                log("⚡ Extending survey: collecting +5 more scans (Target now $activeTargetSamples scans)$limitNotice...\n")
-                updateProgressDisplay(currentSampleCount, activeTargetSamples, "Auto-Calibrating '$spot'...")
-                scanHandler.postDelayed({
-                    if (isScanningActive) triggerWifiScan()
-                }, 1000)
-                return
-            }
-
-            // Target met, Auto-Calib finished, or stopped by user: finalize survey
-            val completionMsg = if (userRequestedStop) "Survey Stopped: '$spot'" else "Survey Completed: '$spot'"
-            updateProgressDisplay(activeTargetSamples, activeTargetSamples, completionMsg)
-            log("\n--- Survey Results for '$spot' ($activeTargetSamples iterations) ---\n")
-            for (m in processedMeasurements) {
-                log("• ${m.ssid} (${m.bssid}): Avg ${m.avgRssi} dBm (${m.rawReadings.size} samples)\n")
-            }
-
-            // Save full measurements into database
-            val rawMeasurements = processedMeasurements.map {
-                RawApMeasurement(it.bssid, it.ssid, it.rawReadings, it.avgRssi)
-            }
-            val spotRecord = RawSurveySpot(spot, rawMeasurements, activeTargetSamples)
-            val existingIdx = surveyDatabase.indexOfFirst { it.spotLabel.equals(spot, ignoreCase = true) }
-            if (existingIdx >= 0) {
-                surveyDatabase[existingIdx] = spotRecord
-            } else {
-                surveyDatabase.add(spotRecord)
-            }
-
-            // Rebuild Strategy Models dynamically with the newly added spot
-            rebuildStrategyModels()
-
-            // Save to CSV file with all raw samples
-            saveFingerprintToCsv(spot, processedMeasurements)
-
-            val autoCalibStatus = if (userRequestedStop) {
-                "Stopped Early by User ($activeTargetSamples scans)"
-            } else if (isAutoCalibrationEnabled) {
-                if (benchmarkAcc >= autoCalibTarget) {
-                    "Target Met (${autoCalibTarget}%)"
-                } else if (autoCalibMaxExtraScans > 0 && extraScansDone >= autoCalibMaxExtraScans) {
-                    "Capped at Limit (+$autoCalibMaxExtraScans scans)"
+                // Auto-Calibration condition check (skipped if user explicitly requested stop)
+                val extraScansDone = activeTargetSamples - surveySampleCount
+                val canExtend = if (autoCalibMaxExtraScans > 0) {
+                    extraScansDone < autoCalibMaxExtraScans
                 } else {
-                    "Auto-Calibrated (${"%.1f".format(benchmarkAcc)}%)"
+                    true // 0 = Unlimited!
                 }
-            } else {
-                "Disabled"
+
+                if (isAutoCalibrationEnabled && !userRequestedStop && benchmarkAcc < autoCalibTarget && canExtend) {
+                    val nextTarget = activeTargetSamples + 5
+                    activeTargetSamples = nextTarget
+                    val stratName = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy Matrix" else "Centroid k-NN"
+                    val limitNotice = if (autoCalibMaxExtraScans > 0) " (Max limit: +$autoCalibMaxExtraScans extra scans)" else " (Unlimited mode)"
+                    log("\n⚠️ Auto-Calibration: $stratName accuracy is ${"%.1f".format(benchmarkAcc)}% (< target $autoCalibTarget%).\n")
+                    log("⚡ Extending survey: collecting +5 more scans (Target now $activeTargetSamples scans)$limitNotice...\n")
+                    updateProgressDisplay(currentSampleCount, activeTargetSamples, "Auto-Calibrating '$spot'...")
+                    scanHandler.postDelayed({
+                        if (isScanningActive) triggerWifiScan()
+                    }, 1000)
+                    return
+                }
+
+                // Target met, Auto-Calib finished, or stopped by user: finalize survey
+                val completionMsg = if (userRequestedStop) "Survey Stopped: '$spot'" else "Survey Completed: '$spot'"
+                updateProgressDisplay(activeTargetSamples, activeTargetSamples, completionMsg)
+                log("\n--- Survey Results for '$spot' ($activeTargetSamples iterations) ---\n")
+                for (m in processedMeasurements) {
+                    log("• ${m.ssid} (${m.bssid}): Avg ${m.avgRssi} dBm (${m.rawReadings.size} samples)\n")
+                }
+
+                // Save full measurements into database
+                val rawMeasurements = processedMeasurements.map {
+                    RawApMeasurement(it.bssid, it.ssid, it.rawReadings, it.avgRssi)
+                }
+                val spotRecord = RawSurveySpot(spot, rawMeasurements, activeTargetSamples)
+                val existingIdx = surveyDatabase.indexOfFirst { it.spotLabel.equals(spot, ignoreCase = true) }
+                if (existingIdx >= 0) {
+                    surveyDatabase[existingIdx] = spotRecord
+                } else {
+                    surveyDatabase.add(spotRecord)
+                }
+
+                // Rebuild Strategy Models dynamically with the newly added spot
+                rebuildStrategyModels()
+
+                // Save to CSV file with all raw samples
+                saveFingerprintToCsv(spot, processedMeasurements)
+
+                val autoCalibStatus = if (userRequestedStop) {
+                    "Stopped Early by User ($activeTargetSamples scans)"
+                } else if (isAutoCalibrationEnabled) {
+                    if (benchmarkAcc >= autoCalibTarget) {
+                        "Target Met (${autoCalibTarget}%)"
+                    } else if (autoCalibMaxExtraScans > 0 && extraScansDone >= autoCalibMaxExtraScans) {
+                        "Capped at Limit (+$autoCalibMaxExtraScans scans)"
+                    } else {
+                        "Auto-Calibrated (${"%.1f".format(benchmarkAcc)}%)"
+                    }
+                } else {
+                    "Disabled"
+                }
+
+                val timestamp = System.currentTimeMillis()
+                val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                val isoTime = sdf.format(Date(timestamp))
+
+                val calibRecord = SurveyCalibrationRecord(
+                    timestampMs = timestamp,
+                    isoTime = isoTime,
+                    spotLabel = spot,
+                    totalScans = totalScans,
+                    trainScans = trainScansCount,
+                    testScans = testScansCount,
+                    knnAccuracy = knnAcc,
+                    fuzzyAccuracy = fuzzyAcc,
+                    autoCalibrated = autoCalibStatus,
+                    rawCsvLine = "$timestamp,\"$isoTime\",\"$spot\",$totalScans,$trainScansCount,$testScansCount,${"%.1f".format(knnAcc)},${"%.1f".format(fuzzyAcc)},\"$autoCalibStatus\""
+                )
+                saveSurveyCalibrationToCsv(calibRecord)
+
+                log("\n========================================\n")
+                log("📊 HELD-OUT VALIDATION RESULTS for '$spot'\n")
+                log("========================================\n")
+                log("• Total Scans: $totalScans ($trainScansCount Build / $testScansCount Held-Out Test)\n")
+                log("• Strategy 1 (Centroid k-NN):   ${"%.1f".format(knnAcc)}% ($knnCorrect/$testScansCount correct)\n")
+                log("• Strategy 2 (Fuzzy Matrix):    ${"%.1f".format(fuzzyAcc)}% ($fuzzyCorrect/$testScansCount correct)\n")
+                log("• Auto-Calibration:             $autoCalibStatus\n")
+                log("💾 Saved spot to CSV & validation history to survey_calibration_history.csv\n")
+                log("Total spots in memory: ${surveyDatabase.size}\n")
+                log("========================================\n\n")
+
+                refreshSurveyAccView()
             }
+            ScanMode.CALIBRATE -> {
+                updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Calibration Completed")
+                log("\n--- Calibration Scan at '$targetCalibSpot' ($activeTargetSamples iterations) ---\n")
+                for (m in processedMeasurements) {
+                    log("• ${m.ssid} (${m.bssid}): Avg ${m.avgRssi} dBm (${m.rawReadings.size} samples)\n")
+                }
 
-            val timestamp = System.currentTimeMillis()
-            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
+                val refSpot = importedDatabase.find { it.spotLabel.equals(targetCalibSpot, ignoreCase = true) }
+                if (refSpot == null) {
+                    log("❌ Error: Spot '$targetCalibSpot' not found in imported reference database.\n")
+                    Toast.makeText(this, "Calibration error: spot not found", Toast.LENGTH_SHORT).show()
+                } else {
+                    val result = OffsetCalibrator.compute(averagedFingerprint, refSpot)
+                    showCalibrationResultDialog(result)
+                }
             }
-            val isoTime = sdf.format(Date(timestamp))
+            ScanMode.LOCATE -> {
+                updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Locate Completed")
+                log("\n--- Live Scan ($activeTargetSamples iterations) ---\n")
+                for (m in processedMeasurements) {
+                    log("${m.ssid} (${m.bssid})\n")
+                    log("  Readings (${m.rawReadings.size}): ${m.rawReadings} -> Avg: ${m.avgRssi} dBm\n")
+                }
 
-            val calibRecord = SurveyCalibrationRecord(
-                timestampMs = timestamp,
-                isoTime = isoTime,
-                spotLabel = spot,
-                totalScans = totalScans,
-                trainScans = trainScansCount,
-                testScans = testScansCount,
-                knnAccuracy = knnAcc,
-                fuzzyAccuracy = fuzzyAcc,
-                autoCalibrated = autoCalibStatus,
-                rawCsvLine = "$timestamp,\"$isoTime\",\"$spot\",$totalScans,$trainScansCount,$testScansCount,${"%.1f".format(knnAcc)},${"%.1f".format(fuzzyAcc)},\"$autoCalibStatus\""
-            )
-            saveSurveyCalibrationToCsv(calibRecord)
-
-            log("\n========================================\n")
-            log("📊 HELD-OUT VALIDATION RESULTS for '$spot'\n")
-            log("========================================\n")
-            log("• Total Scans: $totalScans ($trainScansCount Build / $testScansCount Held-Out Test)\n")
-            log("• Strategy 1 (Centroid k-NN):   ${"%.1f".format(knnAcc)}% ($knnCorrect/$testScansCount correct)\n")
-            log("• Strategy 2 (Fuzzy Matrix):    ${"%.1f".format(fuzzyAcc)}% ($fuzzyCorrect/$testScansCount correct)\n")
-            log("• Auto-Calibration:             $autoCalibStatus\n")
-            log("💾 Saved spot to CSV & validation history to survey_calibration_history.csv\n")
-            log("Total spots in memory: ${surveyDatabase.size}\n")
-            log("========================================\n\n")
-
-            refreshSurveyAccView()
-        } else {
-            updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Locate Completed")
-            log("\n--- Live Scan ($activeTargetSamples iterations) ---\n")
-            for (m in processedMeasurements) {
-                log("${m.ssid} (${m.bssid})\n")
-                log("  Readings (${m.rawReadings.size}): ${m.rawReadings} -> Avg: ${m.avgRssi} dBm\n")
+                // Execute localization using the Strategy Pattern
+                val liveQuery = LiveQueryScan(averagedFingerprint, bssidToSsidMap)
+                executeLocalization(liveQuery)
             }
-
-            // Execute localization using the Strategy Pattern
-            val liveQuery = LiveQueryScan(averagedFingerprint, bssidToSsidMap)
-            executeLocalization(liveQuery)
         }
 
         // FINISHED: Unlock scanning state and re-enable buttons
@@ -578,9 +750,11 @@ class MainActivity : AppCompatActivity() {
         if (activeMapSource == FingerprintSource.IMPORTED) {
             btnSurvey.isEnabled = false
             editSpotName.isEnabled = false
+            btnCalibrate.isEnabled = true
         } else {
             btnSurvey.isEnabled = true
             editSpotName.isEnabled = true
+            btnCalibrate.isEnabled = false
         }
         btnLocate.isEnabled = true
         btnClearData.isEnabled = true
@@ -606,9 +780,21 @@ class MainActivity : AppCompatActivity() {
 
         rebuildStrategyModels()
 
-        // Evaluate strategies on the exact same live query data
-        val resKnn = knnStrategy.infer(query)
-        val resFuzzy = fuzzyMatrixStrategy.infer(query)
+        // If using an imported reference map and calibration exists, apply offset to k-NN & Fuzzy
+        val refId = if (activeMapSource == FingerprintSource.IMPORTED) importedMetadata?.deviceId ?: "" else ""
+        val calib = if (refId.isNotEmpty()) CalibrationStore.getCalibration(this, refId) else null
+
+        val queryForCentroid = if (calib != null) {
+            val sign = if (calib.offsetDb >= 0) "+" else ""
+            log("🎯 Applying antenna offset ($sign${"%.1f".format(Locale.US, calib.offsetDb)} dB) to k-NN & Fuzzy query...\n")
+            OffsetCalibrator.apply(query, calib.offsetDb)
+        } else {
+            query
+        }
+
+        // Evaluate strategies: k-NN and Fuzzy use corrected query; Pattern always uses raw query
+        val resKnn = knnStrategy.infer(queryForCentroid)
+        val resFuzzy = fuzzyMatrixStrategy.infer(queryForCentroid)
         val resPattern = patternStrategy.infer(query)
 
         when (selectedStrategyMode) {
@@ -685,7 +871,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Prompt user for ground-truth accuracy feedback and persist outcome
-        showFeedbackDialog(query, resKnn, resFuzzy, resPattern)
+        showFeedbackDialog(query, resKnn, resFuzzy, resPattern, calib?.offsetDb)
     }
 
     /**
@@ -696,7 +882,8 @@ class MainActivity : AppCompatActivity() {
         query: LiveQueryScan,
         resKnn: LocalizationResult,
         resFuzzy: LocalizationResult,
-        resPattern: LocalizationResult
+        resPattern: LocalizationResult,
+        calibOffsetDb: Double? = null
     ) {
         val spotNames = getActiveSurveyDatabase().map { it.spotLabel }.distinct().sorted()
         if (spotNames.isEmpty()) return
@@ -738,10 +925,11 @@ class MainActivity : AppCompatActivity() {
             .setView(dialogView)
             .setPositiveButton("✅ Confirm & Save") { _, _ ->
                 val actualSpot = spinnerActualSpot.selectedItem?.toString() ?: defaultSelection
-                val isKnnCorrect = (actualSpot == knnWinner)
-                val isFuzzyCorrect = (actualSpot == fuzzyWinner)
+                val isKnnCorrect = actualSpot.equals(knnWinner, ignoreCase = true)
+                val isFuzzyCorrect = actualSpot.equals(fuzzyWinner, ignoreCase = true)
+                val isPatternCorrect = actualSpot.equals(patternWinner, ignoreCase = true)
 
-                saveEvaluationRecord(actualSpot, resKnn, resFuzzy, query)
+                saveEvaluationRecord(actualSpot, resKnn, resFuzzy, resPattern, query, calibOffsetDb)
                 if (historyAdapter != null) {
                     refreshHistoryView()
                 }
@@ -757,6 +945,11 @@ class MainActivity : AppCompatActivity() {
                 val fuzzyErrStr = if (fuzzyErrM != null) " (Error: ${"%.2f".format(fuzzyErrM)} m)" else ""
                 feedbackMsg.append("• Strategy 1 (k-NN):    $knnWinner -> ${if (isKnnCorrect) "✅ CORRECT" else "❌ WRONG"}$knnErrStr\n")
                 feedbackMsg.append("• Strategy 2 (Fuzzy):   $fuzzyWinner -> ${if (isFuzzyCorrect) "✅ CORRECT" else "❌ WRONG"}$fuzzyErrStr\n")
+                feedbackMsg.append("• Strategy 3 (Pattern): $patternWinner -> ${if (isPatternCorrect) "✅ CORRECT" else "❌ WRONG"}\n")
+                if (calibOffsetDb != null) {
+                    val sign = if (calibOffsetDb >= 0) "+" else ""
+                    feedbackMsg.append("• Antenna Offset:       $sign${"%.1f".format(Locale.US, calibOffsetDb)} dB\n")
+                }
                 feedbackMsg.append("💾 Saved to $FEEDBACK_CSV_NAME for further analysis\n")
                 feedbackMsg.append("========================================\n\n")
                 log(feedbackMsg.toString())
@@ -768,41 +961,65 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Appends validation result to localization_feedback.csv.
+     * Appends validation result to localization_feedback.csv using the 17-column format.
      */
     private fun saveEvaluationRecord(
         actualSpot: String,
         resKnn: LocalizationResult,
         resFuzzy: LocalizationResult,
-        query: LiveQueryScan
+        resPattern: LocalizationResult,
+        query: LiveQueryScan,
+        calibOffsetDb: Double?
     ) {
         try {
             val file = File(getExternalFilesDir(null), FEEDBACK_CSV_NAME)
-            val isNewFile = !file.exists()
-            val writer = FileWriter(file, true) // append mode
             val timestamp = System.currentTimeMillis()
             val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }
             val isoTime = isoFormat.format(Date(timestamp))
 
-            if (isNewFile) {
-                writer.append("timestamp_ms,iso_time,actual_spot,knn_predicted,knn_correct,knn_margin,fuzzy_predicted,fuzzy_correct,fuzzy_margin,query_signals\n")
-            }
-
             val knnPred = resKnn.predictedSpot ?: "None"
-            val knnCorrect = if (knnPred == actualSpot) 1 else 0
+            val knnCorrect = knnPred.equals(actualSpot, ignoreCase = true)
             val knnMargin = resKnn.confidenceMargin ?: 0.0
 
             val fuzzyPred = resFuzzy.predictedSpot ?: "None"
-            val fuzzyCorrect = if (fuzzyPred == actualSpot) 1 else 0
+            val fuzzyCorrect = fuzzyPred.equals(actualSpot, ignoreCase = true)
             val fuzzyMargin = resFuzzy.confidenceMargin ?: 0.0
+
+            val patternPred = resPattern.predictedSpot ?: "None"
+            val patternCorrect = patternPred.equals(actualSpot, ignoreCase = true)
+            val patternMargin = resPattern.confidenceMargin ?: 0.0
 
             val queryStr = query.readings.entries.joinToString(";") { "${it.key}:${it.value}" }
 
-            writer.append("$timestamp,$isoTime,$actualSpot,$knnPred,$knnCorrect,$knnMargin,$fuzzyPred,$fuzzyCorrect,$fuzzyMargin,\"$queryStr\"\n")
-            writer.flush()
-            writer.close()
+            val refModel = if (activeMapSource == FingerprintSource.IMPORTED) {
+                importedMetadata?.model ?: ""
+            } else {
+                DeviceInfo.getDeviceModel()
+            }
+
+            val record = FeedbackHistoryRecord(
+                timestampMs = timestamp,
+                isoTime = isoTime,
+                actualSpot = actualSpot,
+                knnPredicted = knnPred,
+                knnCorrect = knnCorrect,
+                knnMargin = knnMargin,
+                fuzzyPredicted = fuzzyPred,
+                fuzzyCorrect = fuzzyCorrect,
+                fuzzyMargin = fuzzyMargin,
+                querySignals = queryStr,
+                patternPredicted = patternPred,
+                patternCorrect = patternCorrect,
+                patternMargin = patternMargin,
+                mapSource = activeMapSource.name,
+                refDeviceModel = refModel,
+                locateDeviceModel = DeviceInfo.getDeviceModel(),
+                calibOffsetDb = calibOffsetDb
+            )
+
+            FeedbackCsv.append(file, record)
         } catch (e: Exception) {
             log("❌ Error writing feedback CSV: ${e.message}\n")
         }
@@ -859,43 +1076,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun loadFeedbackHistory(): List<FeedbackHistoryRecord> {
         val file = File(getExternalFilesDir(null), FEEDBACK_CSV_NAME)
-        if (!file.exists()) return emptyList()
-
-        val records = mutableListOf<FeedbackHistoryRecord>()
-        file.forEachLine { line ->
-            if (line.isNotBlank() && !line.startsWith("timestamp_ms")) {
-                val parts = parseCsvLine(line)
-                if (parts.size >= 9) {
-                    val timestampMs = parts[0].toLongOrNull() ?: 0L
-                    val isoTime = parts[1]
-                    val actualSpot = parts[2]
-                    val knnPredicted = parts[3]
-                    val knnCorrect = (parts[4] == "1" || parts[4].equals("true", ignoreCase = true))
-                    val knnMargin = parts[5].toDoubleOrNull() ?: 0.0
-                    val fuzzyPredicted = parts[6]
-                    val fuzzyCorrect = (parts[7] == "1" || parts[7].equals("true", ignoreCase = true))
-                    val fuzzyMargin = parts[8].toDoubleOrNull() ?: 0.0
-                    val querySignals = parts.getOrNull(9)?.trim('\"') ?: ""
-
-                    records.add(
-                        FeedbackHistoryRecord(
-                            timestampMs = timestampMs,
-                            isoTime = isoTime,
-                            actualSpot = actualSpot,
-                            knnPredicted = knnPredicted,
-                            knnCorrect = knnCorrect,
-                            knnMargin = knnMargin,
-                            fuzzyPredicted = fuzzyPredicted,
-                            fuzzyCorrect = fuzzyCorrect,
-                            fuzzyMargin = fuzzyMargin,
-                            querySignals = querySignals,
-                            rawCsvLine = line
-                        )
-                    )
-                }
-            }
-        }
-        return records.reversed() // Most recent validations first
+        return FeedbackCsv.loadAll(file)
     }
 
     /**
@@ -903,13 +1084,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun deleteFeedbackRecord(record: FeedbackHistoryRecord, position: Int) {
         val file = File(getExternalFilesDir(null), FEEDBACK_CSV_NAME)
-        if (file.exists()) {
-            val lines = file.readLines()
-            val remainingLines = lines.filter { line ->
-                line.startsWith("timestamp_ms") || line.trim() != record.rawCsvLine.trim()
-            }
-            file.writeText(remainingLines.joinToString("\n") + if (remainingLines.isNotEmpty()) "\n" else "")
-        }
+        FeedbackCsv.delete(file, record.rawCsvLine)
 
         historyAdapter?.removeAt(position)
         updateHistoryStats()
@@ -932,9 +1107,11 @@ class MainActivity : AppCompatActivity() {
             val records = historyAdapter?.records ?: emptyList()
             val knnCorrectCount = records.count { it.knnCorrect }
             val fuzzyCorrectCount = records.count { it.fuzzyCorrect }
+            val patCorrectCount = records.count { it.patternCorrect }
             val knnPct = (knnCorrectCount.toDouble() / count * 100).toInt()
             val fuzzyPct = (fuzzyCorrectCount.toDouble() / count * 100).toInt()
-            tvHistoryStats.text = "Records: $count | k-NN Acc: $knnPct% | Fuzzy Acc: $fuzzyPct%"
+            val patPct = (patCorrectCount.toDouble() / count * 100).toInt()
+            tvHistoryStats.text = "Records: $count | k-NN: $knnPct% | Fuzzy: $fuzzyPct% | Pattern: $patPct%"
         }
     }
 
@@ -1233,8 +1410,12 @@ class MainActivity : AppCompatActivity() {
             }
 
             currentSampleCount++
-            val spot = if (isSurveying) editSpotName.text.toString().trim() else "Locate Position"
-            updateProgressDisplay(currentSampleCount, activeTargetSamples, if (isSurveying) "Surveying '$spot'..." else "Locating...")
+            val statusMsg = when (currentScanMode) {
+                ScanMode.SURVEY -> "Surveying '${editSpotName.text.toString().trim()}'..."
+                ScanMode.CALIBRATE -> "Calibrating at '$targetCalibSpot'..."
+                ScanMode.LOCATE -> "Locating..."
+            }
+            updateProgressDisplay(currentSampleCount, activeTargetSamples, statusMsg)
 
             val currentScanMap = mutableMapOf<String, Int>()
             for (result in scanResults) {
@@ -1247,7 +1428,7 @@ class MainActivity : AppCompatActivity() {
                 sampleBuffer.getOrPut(bssid) { mutableListOf() }.add(rssi)
                 currentScanMap[bssid] = rssi
             }
-            if (isSurveying) {
+            if (currentScanMode == ScanMode.SURVEY) {
                 scanSnapshots.add(currentScanMap)
             }
 
@@ -1308,6 +1489,15 @@ class MainActivity : AppCompatActivity() {
             btnSurvey.text = "🚫 Surveying Disabled (Imported Ref Mode)"
             editSpotName.isEnabled = false
             editSpotName.hint = "Locating via imported reference map (${importedDatabase.size} spots)"
+            btnCalibrate.visibility = View.VISIBLE
+            val refId = importedMetadata?.deviceId ?: ""
+            val calib = if (refId.isNotEmpty()) CalibrationStore.getCalibration(this, refId) else null
+            if (calib != null) {
+                val sign = if (calib.offsetDb >= 0) "+" else ""
+                btnCalibrate.text = "🎯 Calib ($sign${"%.1f".format(Locale.US, calib.offsetDb)} dB)"
+            } else {
+                btnCalibrate.text = "🎯 Calibrate"
+            }
             log("🔄 Switched to Imported Reference Map: ${importedMetadata?.model} (${importedDatabase.size} spots)\n")
         } else {
             // Local mode
@@ -1315,6 +1505,7 @@ class MainActivity : AppCompatActivity() {
             btnSurvey.text = getString(R.string._1_record_survey_sample)
             editSpotName.isEnabled = true
             editSpotName.hint = getString(R.string.enter_spot_label_e_g_spot_1)
+            btnCalibrate.visibility = View.GONE
             log("🔄 Switched to Local Device Survey Map (${surveyDatabase.size} spots)\n")
         }
 
@@ -1373,7 +1564,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (!isSurveying) {
+        if (currentScanMode == ScanMode.LOCATE) {
             log("Starting Wi-Fi scan...\n")
         }
 
@@ -1510,6 +1701,7 @@ class MainActivity : AppCompatActivity() {
         btnViewMatrix = findViewById(R.id.btnViewMatrix)
         btnShareMap = findViewById(R.id.btnShareMap)
         btnImportMap = findViewById(R.id.btnImportMap)
+        btnCalibrate = findViewById(R.id.btnCalibrate)
         rgMapSource = findViewById(R.id.rgMapSource)
         rbSourceLocal = findViewById(R.id.rbSourceLocal)
         rbSourceImported = findViewById(R.id.rbSourceImported)
@@ -1598,9 +1790,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Calibrate Button: One-spot antenna offset calibration against imported reference map
+        btnCalibrate.setOnClickListener {
+            if (isScanningActive) {
+                log("\n⚠️ A scan is already in progress, please wait...\n")
+                return@setOnClickListener
+            }
+            showCalibrationDialog()
+        }
+
         // Stop Survey Button: Stops current survey session immediately and persists data collected so far
         btnStopSurvey.setOnClickListener {
-            if (!isScanningActive || !isSurveying) return@setOnClickListener
+            if (!isScanningActive || currentScanMode != ScanMode.SURVEY) return@setOnClickListener
 
             val spot = editSpotName.text.toString().trim()
             log("\n⏹️ User clicked STOP! Stopping survey for '$spot' at $currentSampleCount scans...\n")
@@ -1651,7 +1852,7 @@ class MainActivity : AppCompatActivity() {
             btnStopSurvey.visibility = View.VISIBLE
             btnStopSurvey.isEnabled = true
 
-            isSurveying = true
+            currentScanMode = ScanMode.SURVEY
             acquireScreenWakeLock()
             sampleBuffer.clear()
             bssidToSsidMap.clear()
@@ -1735,7 +1936,7 @@ class MainActivity : AppCompatActivity() {
             btnSettings.isEnabled = false
             btnViewMatrix.isEnabled = false
 
-            isSurveying = false
+            currentScanMode = ScanMode.LOCATE
             sampleBuffer.clear()
             bssidToSsidMap.clear()
             scanSnapshots.clear()

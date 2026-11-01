@@ -63,6 +63,26 @@
         android:text="• Fuzzy: Hall (✅ Correct) [Margin: +0.40]"
         android:textSize="12sp"
         android:textColor="#212121"
+        android:layout_marginBottom="2dp" />
+
+    <!-- Strategy 3: Pattern Result Row -->
+    <TextView
+        android:id="@+id/tvHistoryPatternResult"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="• Pattern: Hall (✅ Correct) [Sep: 3.50 dB]"
+        android:textSize="12sp"
+        android:textColor="#212121"
+        android:layout_marginBottom="2dp" />
+
+    <!-- Context Info (Map source, Model, Calibration) -->
+    <TextView
+        android:id="@+id/tvHistoryContext"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="📱 Source: LOCAL"
+        android:textSize="11sp"
+        android:textColor="#5E35B1"
         android:layout_marginBottom="4dp" />
 
     <!-- Query Signals Vector -->
