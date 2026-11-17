@@ -110,15 +110,27 @@ class FuzzyMatrixStrategy(
     // 3D Grid: SpotLabel -> (BSSID -> DiscreteFuzzyCell)
     private val matrix = mutableMapOf<String, Map<String, DiscreteFuzzyCell>>()
     private val spotTotalScans = mutableMapOf<String, Int>()
+    private val spotCoords = mutableMapOf<String, Pair<Double, Double>>()
+
+    fun getCoordinatesForSpot(spotLabel: String): Pair<Double, Double>? {
+        val clean = spotLabel.trim().lowercase()
+        val dynamic = spotCoords[clean]
+        if (dynamic != null && (dynamic.first != 0.0 || dynamic.second != 0.0)) {
+            return dynamic
+        }
+        return KnnStrategy.getCoordinatesForSpot(clean) ?: dynamic
+    }
 
     override fun buildModel(surveys: List<RawSurveySpot>) {
         allKnownAps.clear()
         apSsidMap.clear()
         matrix.clear()
         spotTotalScans.clear()
+        spotCoords.clear()
 
         // 1. Gather all unique APs across the entire survey environment
         for (spot in surveys) {
+            spotCoords[spot.spotLabel.trim().lowercase()] = Pair(spot.coordX, spot.coordY)
             spotTotalScans[spot.spotLabel] = spot.totalScans
             for (m in spot.measurements) {
                 allKnownAps.add(m.bssid)

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#FFFFFF"
+    android:padding="8dp"
+    android:layout_marginBottom="6dp"
+    android:elevation="1dp">
+
+    <!-- Header Row: Trial Index, Spot, Separation, Timestamp -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tvExpTrialNumber"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Trial #1"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#1A237E" />
+
+        <TextView
+            android:id="@+id/tvExpActualSpot"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="Spot: S1 (0.0m, 0.0m)"
+            android:textSize="12sp"
+            android:textColor="#424242" />
+
+        <TextView
+            android:id="@+id/tvExpSeparationBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="2.0m"
+            android:background="#E8EAF6"
+            android:textColor="#283593"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="2dp" />
+    </LinearLayout>
+
+    <!-- Results Row: k-NN & Fuzzy Side by Side -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="4dp">
+
+        <TextView
+            android:id="@+id/tvExpKnnResult"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="k-NN: S1 ✅ (Err: 0.00m)"
+            android:textSize="11sp"
+            android:textColor="#2E7D32" />
+
+        <TextView
+            android:id="@+id/tvExpFuzzyResult"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Fuzzy: S1 ✅ (Err: 0.00m)"
+            android:textSize="11sp"
+            android:textColor="#2E7D32" />
+    </LinearLayout>
+
+</LinearLayout>
+

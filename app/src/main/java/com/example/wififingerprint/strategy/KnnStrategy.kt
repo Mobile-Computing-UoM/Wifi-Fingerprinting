@@ -57,8 +57,19 @@ class KnnStrategy(
             "storeroom" to Pair(9.0, 2.0)
         )
 
+        val spotCoords: MutableMap<String, Pair<Double, Double>> = mutableMapOf()
+
+        fun registerSpotCoords(spotLabel: String, x: Double, y: Double) {
+            spotCoords[spotLabel.trim().lowercase()] = Pair(x, y)
+        }
+
         fun getCoordinatesForSpot(spotLabel: String): Pair<Double, Double>? {
-            return FLOOR_PLAN_COORDS[spotLabel.trim().lowercase()]
+            val clean = spotLabel.trim().lowercase()
+            val dynamic = spotCoords[clean]
+            if (dynamic != null && (dynamic.first != 0.0 || dynamic.second != 0.0)) {
+                return dynamic
+            }
+            return FLOOR_PLAN_COORDS[clean] ?: dynamic
         }
 
         fun computeErrorMeters(
@@ -78,8 +89,10 @@ class KnnStrategy(
         this.spots = surveys
         individualScans.clear()
         allKnownBssids.clear()
+        spotCoords.clear()
 
         for (spot in surveys) {
+            spotCoords[spot.spotLabel.trim().lowercase()] = Pair(spot.coordX, spot.coordY)
             for (m in spot.measurements) {
                 allKnownBssids.add(m.bssid)
             }

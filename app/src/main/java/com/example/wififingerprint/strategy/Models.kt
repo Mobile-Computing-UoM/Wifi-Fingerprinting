@@ -16,7 +16,9 @@ data class RawApMeasurement(
 data class RawSurveySpot(
     val spotLabel: String,
     val measurements: List<RawApMeasurement>,
-    val totalScans: Int
+    val totalScans: Int,
+    val coordX: Double = 0.0,
+    val coordY: Double = 0.0
 ) {
     // Quick helper mapping bssid -> list of raw readings
     val bssidToRawMap: Map<String, List<Int>> by lazy {
@@ -82,5 +84,6 @@ enum class StrategyMode(val key: String, val title: String) {
 enum class ScanMode {
     SURVEY,
     LOCATE,
-    CALIBRATE
+    CALIBRATE,
+    EXPERIMENT
 }

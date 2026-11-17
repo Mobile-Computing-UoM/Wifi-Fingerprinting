@@ -24,7 +24,7 @@ object FingerprintFile {
     private const val HEADER_CALIB_A = "#calib_a="
     private const val HEADER_CALIB_B = "#calib_b="
 
-    private const val CSV_COLUMNS = "timestamp,spot_label,bssid,ssid,sample_count,samples,avg_rssi"
+    private const val CSV_COLUMNS = "timestamp,spot_label,coord_x,coord_y,bssid,ssid,sample_count,samples,avg_rssi"
 
     /**
      * Serializes survey spots and metadata into a shareable string format with standard headers.
@@ -47,7 +47,7 @@ object FingerprintFile {
                 val normBssid = BssidNormalizer.normalizeBssid(m.bssid)
                 val cleanSsid = "Anon-AP"
                 val rawStr = "\"[" + m.rawReadings.joinToString(";") + "]\""
-                sb.append("$timestamp,${spot.spotLabel},$normBssid,$cleanSsid,${m.rawReadings.size},$rawStr,${m.avgRssi}\n")
+                sb.append("$timestamp,${spot.spotLabel},${spot.coordX},${spot.coordY},$normBssid,$cleanSsid,${m.rawReadings.size},$rawStr,${m.avgRssi}\n")
             }
         }
         return sb.toString()
@@ -68,6 +68,7 @@ object FingerprintFile {
 
         val spotMeasurements = mutableMapOf<String, MutableMap<String, RawApMeasurement>>()
         val spotMaxScans = mutableMapOf<String, Int>()
+        val spotCoords = mutableMapOf<String, Pair<Double, Double>>()
 
         content.lineSequence().forEach { line ->
             val trimmed = line.trim()
@@ -99,13 +100,15 @@ object FingerprintFile {
 
             // Data line processing
             if (trimmed.contains("\"[")) {
-                // 7-column format with raw samples array
                 val parts = trimmed.split("\"")
                 val meta = parts[0].split(",")
+                val hasCoords = meta.size >= 7 && meta[2].toDoubleOrNull() != null && meta[3].toDoubleOrNull() != null
                 val spot = meta.getOrNull(1)?.trim() ?: ""
-                val rawBssid = meta.getOrNull(2)?.trim() ?: ""
-                val rawSsid = meta.getOrNull(3)?.trim() ?: "Unknown"
-                val count = meta.getOrNull(4)?.trim()?.toIntOrNull() ?: 1
+                val coordX = if (hasCoords) meta.getOrNull(2)?.trim()?.toDoubleOrNull() ?: 0.0 else 0.0
+                val coordY = if (hasCoords) meta.getOrNull(3)?.trim()?.toDoubleOrNull() ?: 0.0 else 0.0
+                val rawBssid = if (hasCoords) meta.getOrNull(4)?.trim() ?: "" else meta.getOrNull(2)?.trim() ?: ""
+                val rawSsid = if (hasCoords) meta.getOrNull(5)?.trim() ?: "Unknown" else meta.getOrNull(3)?.trim() ?: "Unknown"
+                val count = if (hasCoords) meta.getOrNull(6)?.trim()?.toIntOrNull() ?: 1 else meta.getOrNull(4)?.trim()?.toIntOrNull() ?: 1
 
                 val rawList = if (parts.size > 1) {
                     parts[1].trim(' ', '[', ']')
@@ -120,6 +123,9 @@ object FingerprintFile {
                     val normBssid = BssidNormalizer.normalizeBssid(rawBssid)
                     val currentMax = spotMaxScans[spot] ?: 0
                     spotMaxScans[spot] = maxOf(currentMax, count, rawList.size)
+                    if (hasCoords || !spotCoords.containsKey(spot)) {
+                        spotCoords[spot] = Pair(coordX, coordY)
+                    }
                     spotMeasurements.getOrPut(spot) { mutableMapOf() }[normBssid] =
                         RawApMeasurement(normBssid, rawSsid, rawList.ifEmpty { listOf(avg) }, avg)
                 }
@@ -149,7 +155,8 @@ object FingerprintFile {
 
         val spots = spotMeasurements.map { (spot, bssidMap) ->
             val totalScans = spotMaxScans[spot] ?: 1
-            RawSurveySpot(spot, bssidMap.values.toList(), totalScans)
+            val coords = spotCoords[spot] ?: Pair(0.0, 0.0)
+            RawSurveySpot(spot, bssidMap.values.toList(), totalScans, coords.first, coords.second)
         }
 
         val metadata = FingerprintFileMetadata(

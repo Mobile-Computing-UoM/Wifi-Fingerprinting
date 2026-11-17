@@ -98,11 +98,39 @@
             </RadioGroup>
         </LinearLayout>
 
-        <EditText
-            android:id="@+id/editSpotName"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="@string/enter_spot_label_e_g_spot_1" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <EditText
+                android:id="@+id/editSpotName"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.6"
+                android:hint="@string/enter_spot_label_e_g_spot_1" />
+
+            <EditText
+                android:id="@+id/editSurveyCoordX"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="0.8"
+                android:hint="X (m)"
+                android:gravity="center"
+                android:textSize="13sp"
+                android:inputType="numberDecimal|numberSigned" />
+
+            <EditText
+                android:id="@+id/editSurveyCoordY"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="0.8"
+                android:hint="Y (m)"
+                android:gravity="center"
+                android:textSize="13sp"
+                android:inputType="numberDecimal|numberSigned" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -414,5 +442,12 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
     </LinearLayout>
+
+    <!-- TAB 4 CONTENT: Automated Positioning Experiment -->
+    <include
+        layout="@layout/layout_experiment"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
 
 </LinearLayout>

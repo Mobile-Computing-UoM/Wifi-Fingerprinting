@@ -63,6 +63,13 @@ import com.example.wififingerprint.strategy.RawSurveySpot
 import com.example.wififingerprint.strategy.ScanMode
 import com.example.wififingerprint.strategy.StrategyMode
 import com.google.android.material.tabs.TabLayout
+import com.example.wififingerprint.experiment.ExperimentConfig
+import com.example.wififingerprint.experiment.ExperimentCsvManager
+import com.example.wififingerprint.experiment.ExperimentIterationResult
+import com.example.wififingerprint.experiment.ExperimentListener
+import com.example.wififingerprint.experiment.ExperimentRunner
+import com.example.wififingerprint.experiment.ExperimentSummaryStats
+import com.example.wififingerprint.experiment.ExperimentTabController
 import java.io.File
 import java.io.FileWriter
 import java.security.MessageDigest
@@ -83,6 +90,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var layoutScannerView: LinearLayout
     private lateinit var layoutSurveyAccView: LinearLayout
     private lateinit var layoutHistoryView: LinearLayout
+    private lateinit var layoutExperimentView: LinearLayout
+
+    // Tab 4: Automated Experiment Runner
+    private lateinit var experimentCsvManager: ExperimentCsvManager
+    private lateinit var experimentRunner: ExperimentRunner
+    private lateinit var experimentController: ExperimentTabController
 
     // Tab 1: Survey Validation History
     private lateinit var tvSurveyAccStats: TextView
@@ -102,6 +115,8 @@ class MainActivity : AppCompatActivity() {
     private var historyAdapter: FeedbackHistoryAdapter? = null
 
     private lateinit var editSpotName: EditText
+    private lateinit var editSurveyCoordX: EditText
+    private lateinit var editSurveyCoordY: EditText
     private lateinit var tvLogs: TextView
     private lateinit var scrollView: ScrollView
     private lateinit var btnSurvey: Button
@@ -654,7 +669,9 @@ class MainActivity : AppCompatActivity() {
                 val rawMeasurements = processedMeasurements.map {
                     RawApMeasurement(it.bssid, it.ssid, it.rawReadings, it.avgRssi)
                 }
-                val spotRecord = RawSurveySpot(spot, rawMeasurements, activeTargetSamples)
+                val coordX = editSurveyCoordX.text.toString().toDoubleOrNull() ?: 0.0
+                val coordY = editSurveyCoordY.text.toString().toDoubleOrNull() ?: 0.0
+                val spotRecord = RawSurveySpot(spot, rawMeasurements, activeTargetSamples, coordX, coordY)
                 val existingIdx = surveyDatabase.indexOfFirst { it.spotLabel.equals(spot, ignoreCase = true) }
                 if (existingIdx >= 0) {
                     surveyDatabase[existingIdx] = spotRecord
@@ -666,7 +683,10 @@ class MainActivity : AppCompatActivity() {
                 rebuildStrategyModels()
 
                 // Save to CSV file with all raw samples
-                saveFingerprintToCsv(spot, processedMeasurements)
+                saveFingerprintToCsv(spot, processedMeasurements, coordX, coordY)
+                if (::experimentController.isInitialized) {
+                    experimentController.refreshSpotList()
+                }
 
                 val autoCalibStatus = if (userRequestedStop) {
                     "Stopped Early by User ($activeTargetSamples scans)"
@@ -743,9 +763,16 @@ class MainActivity : AppCompatActivity() {
                 val liveQuery = LiveQueryScan(averagedFingerprint, bssidToSsidMap)
                 executeLocalization(liveQuery)
             }
+            ScanMode.EXPERIMENT -> {
+                // Experiment scan batches are processed iteratively by ExperimentRunner
+            }
         }
 
         // FINISHED: Unlock scanning state and re-enable buttons
+        unlockControlsAfterScan()
+    }
+
+    private fun unlockControlsAfterScan() {
         isScanningActive = false
         if (activeMapSource == FingerprintSource.IMPORTED) {
             btnSurvey.isEnabled = false
@@ -1266,10 +1293,10 @@ class MainActivity : AppCompatActivity() {
 
     // Save fingerprint entry into wifi_fingerprints.csv including ALL raw measurements
     // Replaces previous lines for this spot to keep CSV clean when continuing survey
-    private fun saveFingerprintToCsv(spot: String, measurements: List<ApMeasurement>) {
+    private fun saveFingerprintToCsv(spot: String, measurements: List<ApMeasurement>, coordX: Double = 0.0, coordY: Double = 0.0) {
         try {
             val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
-            val header = "timestamp,spot_label,bssid,ssid,sample_count,samples,avg_rssi"
+            val header = "timestamp,spot_label,coord_x,coord_y,bssid,ssid,sample_count,samples,avg_rssi"
             val remainingLines = if (file.exists()) {
                 file.readLines().filter { line ->
                     if (line.isBlank() || line.startsWith("timestamp")) return@filter false
@@ -1289,7 +1316,7 @@ class MainActivity : AppCompatActivity() {
             for (m in measurements) {
                 val cleanSsid = m.ssid.replace(",", " ")
                 val rawStr = "\"[" + m.rawReadings.joinToString(";") + "]\""
-                writer.append("$timestamp,$spot,${m.bssid},$cleanSsid,${m.rawReadings.size},$rawStr,${m.avgRssi}\n")
+                writer.append("$timestamp,$spot,$coordX,$coordY,${m.bssid},$cleanSsid,${m.rawReadings.size},$rawStr,${m.avgRssi}\n")
             }
 
             writer.flush()
@@ -1300,7 +1327,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Load previously saved survey data from wifi_fingerprints.csv on startup
-    // Supports both old 5-column and new 7-column formats, reconstructing full raw readings
+    // Supports both old 5-column, 7-column and new 9-column formats, reconstructing full raw readings
     private fun loadFingerprintsFromCsv() {
         try {
             val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
@@ -1309,17 +1336,21 @@ class MainActivity : AppCompatActivity() {
             // Map: SpotLabel -> (BSSID -> RawApMeasurement)
             val spotMeasurements = mutableMapOf<String, MutableMap<String, RawApMeasurement>>()
             val spotMaxScans = mutableMapOf<String, Int>()
+            val spotCoords = mutableMapOf<String, Pair<Double, Double>>()
 
             file.forEachLine { line ->
                 if (!line.startsWith("timestamp") && line.isNotBlank()) {
                     if (line.contains("\"[")) {
-                        // 7-column format with raw sample array
+                        // Raw sample array present
                         val parts = line.split("\"")
                         val meta = parts[0].split(",")
+                        val hasCoords = meta.size >= 7 && meta[2].toDoubleOrNull() != null && meta[3].toDoubleOrNull() != null
                         val spot = meta.getOrNull(1)?.trim() ?: ""
-                        val bssid = meta.getOrNull(2)?.trim() ?: ""
-                        val ssid = meta.getOrNull(3)?.trim() ?: "Unknown"
-                        val count = meta.getOrNull(4)?.trim()?.toIntOrNull() ?: 1
+                        val coordX = if (hasCoords) meta.getOrNull(2)?.trim()?.toDoubleOrNull() ?: 0.0 else 0.0
+                        val coordY = if (hasCoords) meta.getOrNull(3)?.trim()?.toDoubleOrNull() ?: 0.0 else 0.0
+                        val bssid = if (hasCoords) meta.getOrNull(4)?.trim() ?: "" else meta.getOrNull(2)?.trim() ?: ""
+                        val ssid = if (hasCoords) meta.getOrNull(5)?.trim() ?: "Unknown" else meta.getOrNull(3)?.trim() ?: "Unknown"
+                        val count = if (hasCoords) meta.getOrNull(6)?.trim()?.toIntOrNull() ?: 1 else meta.getOrNull(4)?.trim()?.toIntOrNull() ?: 1
 
                         val rawList = if (parts.size > 1) {
                             parts[1].trim(' ', '[', ']')
@@ -1334,6 +1365,9 @@ class MainActivity : AppCompatActivity() {
                             val normBssid = BssidNormalizer.normalizeBssid(bssid)
                             val currentMax = spotMaxScans[spot] ?: 0
                             spotMaxScans[spot] = maxOf(currentMax, count, rawList.size)
+                            if (hasCoords || !spotCoords.containsKey(spot)) {
+                                spotCoords[spot] = Pair(coordX, coordY)
+                            }
                             spotMeasurements.getOrPut(spot) { mutableMapOf() }[normBssid] =
                                 RawApMeasurement(normBssid, ssid, rawList.ifEmpty { listOf(avg) }, avg)
                         }
@@ -1361,7 +1395,8 @@ class MainActivity : AppCompatActivity() {
             surveyDatabase.clear()
             for ((spot, bssidMap) in spotMeasurements) {
                 val totalScans = spotMaxScans[spot] ?: 1
-                surveyDatabase.add(RawSurveySpot(spot, bssidMap.values.toList(), totalScans))
+                val coords = spotCoords[spot] ?: Pair(0.0, 0.0)
+                surveyDatabase.add(RawSurveySpot(spot, bssidMap.values.toList(), totalScans, coords.first, coords.second))
             }
 
             rebuildStrategyModels()
@@ -1409,11 +1444,26 @@ class MainActivity : AppCompatActivity() {
                 return
             }
 
+            if (currentScanMode == ScanMode.EXPERIMENT) {
+                val currentScanMap = mutableMapOf<String, Int>()
+                for (result in scanResults) {
+                    val rawBssid = result.BSSID ?: continue
+                    val rawSsid = if (result.SSID.isNullOrEmpty()) "Hidden" else result.SSID
+                    val (bssid, ssid) = anonymiseApIfNeeded(rawBssid, rawSsid)
+                    val rssi = result.level
+                    bssidToSsidMap[bssid] = ssid
+                    currentScanMap[bssid] = rssi
+                }
+                experimentRunner.onScanResultsAvailable(currentScanMap, bssidToSsidMap)
+                return
+            }
+
             currentSampleCount++
             val statusMsg = when (currentScanMode) {
                 ScanMode.SURVEY -> "Surveying '${editSpotName.text.toString().trim()}'..."
                 ScanMode.CALIBRATE -> "Calibrating at '$targetCalibSpot'..."
                 ScanMode.LOCATE -> "Locating..."
+                ScanMode.EXPERIMENT -> "Experimenting..."
             }
             updateProgressDisplay(currentSampleCount, activeTargetSamples, statusMsg)
 
@@ -1537,31 +1587,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun triggerWifiScan() {
+    private fun triggerWifiScan(): Boolean {
         val locManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         val isLocationOn = locManager != null && LocationManagerCompat.isLocationEnabled(locManager)
         if (!isLocationOn) {
             log("❌ Device Location (GPS) is OFF! Turn ON Location in phone quick settings.\n")
-            isScanningActive = false
-            btnSurvey.isEnabled = true
-            btnLocate.isEnabled = true
-            btnClearData.isEnabled = true
-            btnSettings.isEnabled = true
-            btnViewMatrix.isEnabled = true
-            releaseScreenWakeLock()
-            return
+            unlockControlsAfterScan()
+            return false
         }
 
         if (!wifiManager.isWifiEnabled) {
             log("❌ Wi-Fi is OFF! Please turn ON Wi-Fi on your device.\n")
-            isScanningActive = false
-            btnSurvey.isEnabled = true
-            btnLocate.isEnabled = true
-            btnClearData.isEnabled = true
-            btnSettings.isEnabled = true
-            btnViewMatrix.isEnabled = true
-            releaseScreenWakeLock()
-            return
+            unlockControlsAfterScan()
+            return false
         }
 
         if (currentScanMode == ScanMode.LOCATE) {
@@ -1574,6 +1612,7 @@ class MainActivity : AppCompatActivity() {
                 if (isScanningActive) triggerWifiScan()
             }, 1500)
         }
+        return success
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1584,6 +1623,7 @@ class MainActivity : AppCompatActivity() {
         layoutScannerView = findViewById(R.id.layoutScannerView)
         layoutSurveyAccView = findViewById(R.id.layoutSurveyAccView)
         layoutHistoryView = findViewById(R.id.layoutHistoryView)
+        layoutExperimentView = findViewById(R.id.layoutExperimentView)
 
         // Tab 1: Survey Validation History Views
         tvSurveyAccStats = findViewById(R.id.tvSurveyAccStats)
@@ -1602,6 +1642,7 @@ class MainActivity : AppCompatActivity() {
         tabLayout.addTab(tabLayout.newTab().setText("📡 Scanner"))
         tabLayout.addTab(tabLayout.newTab().setText("📊 Survey Accuracy"))
         tabLayout.addTab(tabLayout.newTab().setText("📋 Live History"))
+        tabLayout.addTab(tabLayout.newTab().setText("🔬 Experiment"))
 
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab?) {
@@ -1610,18 +1651,31 @@ class MainActivity : AppCompatActivity() {
                         layoutScannerView.visibility = View.VISIBLE
                         layoutSurveyAccView.visibility = View.GONE
                         layoutHistoryView.visibility = View.GONE
+                        layoutExperimentView.visibility = View.GONE
                     }
                     1 -> {
                         layoutScannerView.visibility = View.GONE
                         layoutSurveyAccView.visibility = View.VISIBLE
                         layoutHistoryView.visibility = View.GONE
+                        layoutExperimentView.visibility = View.GONE
                         refreshSurveyAccView()
                     }
                     2 -> {
                         layoutScannerView.visibility = View.GONE
                         layoutSurveyAccView.visibility = View.GONE
                         layoutHistoryView.visibility = View.VISIBLE
+                        layoutExperimentView.visibility = View.GONE
                         refreshHistoryView()
+                    }
+                    3 -> {
+                        layoutScannerView.visibility = View.GONE
+                        layoutSurveyAccView.visibility = View.GONE
+                        layoutHistoryView.visibility = View.GONE
+                        layoutExperimentView.visibility = View.VISIBLE
+                        if (::experimentController.isInitialized) {
+                            experimentController.refreshSpotList()
+                            experimentController.refreshHistory()
+                        }
                     }
                 }
             }
@@ -1632,6 +1686,12 @@ class MainActivity : AppCompatActivity() {
                 when (tab?.position) {
                     1 -> refreshSurveyAccView()
                     2 -> refreshHistoryView()
+                    3 -> {
+                        if (::experimentController.isInitialized) {
+                            experimentController.refreshSpotList()
+                            experimentController.refreshHistory()
+                        }
+                    }
                 }
             }
         })
@@ -1691,6 +1751,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         editSpotName = findViewById(R.id.editSpotName)
+        editSurveyCoordX = findViewById(R.id.editSurveyCoordX)
+        editSurveyCoordY = findViewById(R.id.editSurveyCoordY)
         scrollView = findViewById(R.id.scrollView)
         tvLogs = findViewById(R.id.tvLogs)
         btnSurvey = findViewById(R.id.btnSurvey)
@@ -1720,6 +1782,108 @@ class MainActivity : AppCompatActivity() {
         loadSettings() // Load user-configured parameters & strategy mode from SharedPreferences
         loadFingerprintsFromCsv() // Load saved spots from CSV and build strategy models
         updateProgressDisplay(0, surveySampleCount, "Survey Progress")
+
+        experimentCsvManager = ExperimentCsvManager(this)
+
+        experimentRunner = ExperimentRunner(
+            knnStrategy = knnStrategy,
+            fuzzyMatrixStrategy = fuzzyMatrixStrategy,
+            csvManager = experimentCsvManager,
+            listener = object : ExperimentListener {
+                override fun onScanProgress(trialIndex: Int, totalTrials: Int, scanIndex: Int, totalScans: Int) {
+                    runOnUiThread {
+                        experimentController.onScanProgress(trialIndex, totalTrials, scanIndex, totalScans)
+                    }
+                }
+
+                override fun onTrialCompleted(result: ExperimentIterationResult, stats: ExperimentSummaryStats) {
+                    runOnUiThread {
+                        experimentController.onTrialCompleted(result, stats)
+                    }
+                }
+
+                override fun onExperimentFinished(stats: ExperimentSummaryStats) {
+                    runOnUiThread {
+                        unlockControlsAfterScan()
+                        experimentController.onExperimentFinished(stats)
+                    }
+                }
+
+                override fun onExperimentAborted(completedTrials: Int) {
+                    runOnUiThread {
+                        unlockControlsAfterScan()
+                        experimentController.onExperimentAborted()
+                    }
+                }
+
+                override fun onLog(message: String) {
+                    runOnUiThread {
+                        log(message)
+                    }
+                }
+
+                override fun requestWifiScan(): Boolean {
+                    return triggerWifiScan()
+                }
+            },
+            queryPreprocessor = { rawQuery ->
+                val refId = if (activeMapSource == FingerprintSource.IMPORTED) importedMetadata?.deviceId ?: "" else ""
+                val calib = if (refId.isNotEmpty()) CalibrationStore.getCalibration(this, refId) else null
+                if (calib != null) {
+                    OffsetCalibrator.apply(rawQuery, calib.offsetDb)
+                } else {
+                    rawQuery
+                }
+            }
+        )
+
+        experimentController = ExperimentTabController(
+            activity = this,
+            rootView = layoutExperimentView,
+            csvManager = experimentCsvManager,
+            getAvailableSpots = { getActiveSurveyDatabase() },
+            onStartExperimentRequested = { config ->
+                if (isScanningActive) {
+                    Toast.makeText(this, "Scan in progress, please wait", Toast.LENGTH_SHORT).show()
+                    return@ExperimentTabController
+                }
+                val activeSpots = getActiveSurveyDatabase()
+                if (activeSpots.isEmpty()) {
+                    Toast.makeText(this, "Please survey spots first!", Toast.LENGTH_LONG).show()
+                    return@ExperimentTabController
+                }
+
+                isScanningActive = true
+                currentScanMode = ScanMode.EXPERIMENT
+                btnSurvey.isEnabled = false
+                btnLocate.isEnabled = false
+                btnClearData.isEnabled = false
+                btnSettings.isEnabled = false
+                btnViewMatrix.isEnabled = false
+                acquireScreenWakeLock()
+                rebuildStrategyModels()
+                experimentRunner.startExperiment(config)
+            },
+            onStopExperimentRequested = {
+                experimentRunner.stopExperiment()
+            },
+            onShareCsv = { file ->
+                try {
+                    val authority = "${packageName}.fileprovider"
+                    val contentUri = androidx.core.content.FileProvider.getUriForFile(this, authority, file)
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/csv"
+                        putExtra(Intent.EXTRA_STREAM, contentUri)
+                        putExtra(Intent.EXTRA_SUBJECT, "Positioning Experiment Results")
+                        putExtra(Intent.EXTRA_TEXT, "Exported Wi-Fi positioning accuracy results across separations.")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(shareIntent, "Share Experiment Results"))
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
 
         val intentFilter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
         registerReceiver(wifiScanReceiver, intentFilter)
@@ -1968,6 +2132,9 @@ class MainActivity : AppCompatActivity() {
                     val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
                     if (file.exists()) {
                         file.delete()
+                    }
+                    if (::experimentController.isInitialized) {
+                        experimentController.refreshSpotList()
                     }
                     log("\n========================================\n")
                     log("🗑️ All survey data & CSV file have been deleted!\n")
