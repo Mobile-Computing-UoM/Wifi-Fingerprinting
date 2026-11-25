@@ -4,21 +4,24 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
- * Strategy 1: True Scan-Level k-Nearest Neighbours (k-NN) Classifier.
+ * Strategy 1: Distance-Weighted k-Nearest Neighbours (WKNN) Classifier.
  *
  * Stores individual survey scan vectors per spot (supports subsampling N ∈ {10, 30, 50}),
- * computes Euclidean distance across all registered APs with a -100 dBm missing-AP floor,
- * votes among the top-k individual scans (k ∈ {1, 3, 5}), and averages the 2D floor-plan
- * coordinates of the k nearest neighbours (as in RADAR) for metric error evaluation in metres.
+ * computes robust signal-space distance across registered APs with an adaptive missing-AP penalty,
+ * calculates inverse-square distance weights (w_i = 1 / max(d_i, ε)^2) among the top-k nearest scans (k ∈ {1, 3, 5}),
+ * performs accumulated distance-weighted voting for the winning spot, and computes distance-weighted
+ * 2D floor-plan coordinate interpolation for high-precision metric positioning.
  */
 class KnnStrategy(
     var k: Int = 1,
     var maxSamplesPerSpot: Int = Int.MAX_VALUE,
-    val missingRssiFloor: Int = -100
+    val missingRssiFloor: Int = -100,
+    val detectionThreshold: Int = -90,
+    val weightExponent: Double = 2.0
 ) : LocalizationStrategy {
 
-    override val name: String = "Strategy 1: Scan-Level k-NN"
-    override val shortCode: String = "Scan-kNN"
+    override val name: String = "Strategy 1: Weighted k-NN (WKNN)"
+    override val shortCode: String = "WKNN"
 
     data class IndividualScanRecord(
         val spotLabel: String,
@@ -118,18 +121,57 @@ class KnnStrategy(
     }
 
     /**
-     * Estimates 2D floor-plan coordinates (x, y) in metres by averaging the coordinates
-     * of the top-k nearest individual scan vectors (RADAR k-NN coordinate interpolation).
+     * Estimates 2D floor-plan coordinates (x, y) in metres by calculating the distance-weighted
+     * centroid of the top-k nearest individual scan vectors (WKNN coordinate interpolation).
      */
     fun estimateCoordinatesMetres(query: LiveQueryScan): Pair<Double, Double>? {
         val matches = computeAllScanDistances(query)
         if (matches.isEmpty()) return null
         val topK = matches.take(k.coerceAtLeast(1))
-        val coords = topK.mapNotNull { getCoordinatesForSpot(it.spotLabel) }
-        if (coords.isEmpty()) return null
-        val avgX = coords.map { it.first }.average()
-        val avgY = coords.map { it.second }.average()
-        return Pair(avgX, avgY)
+        
+        val validPairs = topK.mapNotNull { m ->
+            val c = getCoordinatesForSpot(m.spotLabel)
+            if (c != null) Pair(m, c) else null
+        }
+        if (validPairs.isEmpty()) return null
+
+        val weights = validPairs.map { (m, _) ->
+            1.0 / maxOf(m.euclideanDist, 0.001).pow(weightExponent)
+        }
+        val sumW = weights.sum()
+        if (sumW <= 0.0) return null
+
+        var weightedX = 0.0
+        var weightedY = 0.0
+        for (i in validPairs.indices) {
+            val normW = weights[i] / sumW
+            val coords = validPairs[i].second
+            weightedX += normW * coords.first
+            weightedY += normW * coords.second
+        }
+
+        return Pair(weightedX, weightedY)
+    }
+
+    /**
+     * Computes the adaptive penalty difference between a recorded RSSI and a missing AP.
+     * When an AP is observed near sensitivity limits (< detectionThreshold, e.g. -90 dBm),
+     * missing it is normal receiver dropping and should receive a small difference penalty
+     * (|r - threshold|). However, when a strong AP is missing (e.g. -50 dBm), it receives
+     * the full missing floor penalty (|r - missingRssiFloor|).
+     */
+    private fun computeAdaptiveDiff(r1: Int?, r2: Int?): Double {
+        if (r1 != null && r2 != null) {
+            return (r1 - r2).toDouble()
+        }
+        val observed = r1 ?: r2 ?: return 0.0
+        return if (observed <= detectionThreshold) {
+            // Weak AP: missing it is likely threshold attenuation
+            (observed - detectionThreshold).toDouble()
+        } else {
+            // Strong or moderate AP: missing it is a significant negative indicator
+            (observed - missingRssiFloor).toDouble()
+        }
     }
 
     private fun computeAllScanDistances(query: LiveQueryScan): List<ScanDistanceMatch> {
@@ -143,9 +185,9 @@ class KnnStrategy(
         for (scan in individualScans) {
             var sumSq = 0.0
             for (bssid in apUniverse) {
-                val rSurvey = scan.readings[bssid] ?: missingRssiFloor
-                val rLive = query.readings[bssid] ?: missingRssiFloor
-                val diff = (rSurvey - rLive).toDouble()
+                val rSurvey = scan.readings[bssid]
+                val rLive = query.readings[bssid]
+                val diff = computeAdaptiveDiff(rSurvey, rLive)
                 sumSq += diff * diff
             }
             val euclid = sqrt(sumSq)
@@ -171,17 +213,34 @@ class KnnStrategy(
         val effectiveK = k.coerceAtLeast(1)
         val log = StringBuilder()
         log.append("\n========================================\n")
-        log.append("🔍 [$name (k=$effectiveK, ${individualScans.size} stored scans, ${allKnownBssids.size} APs, floor=$missingRssiFloor dBm)]\n")
+        log.append("🔍 [$name (k=$effectiveK, p=$weightExponent, ${individualScans.size} stored scans, ${allKnownBssids.size} APs, floor=$missingRssiFloor dBm, thres=$detectionThreshold dBm)]\n")
         log.append("========================================\n")
 
         val allMatches = computeAllScanDistances(query)
         val topK = allMatches.take(effectiveK)
 
-        // Vote tally among the top-k individual scan neighbours
-        val voteGroups = topK.groupBy { it.spotLabel }
-        val winner = voteGroups.entries.sortedWith(
-            compareByDescending<Map.Entry<String, List<ScanDistanceMatch>>> { it.value.size }
-                .thenBy { entry -> entry.value.map { it.euclideanDist }.average() }
+        // Calculate inverse-power distance weights for top-k neighbors: w_i = 1 / max(d_i, 0.001)^p
+        val weights = topK.map { 1.0 / maxOf(it.euclideanDist, 0.001).pow(weightExponent) }
+        val sumW = weights.sum().coerceAtLeast(1e-9)
+        val normWeights = weights.map { it / sumW }
+
+        // Distance-weighted vote accumulation per candidate spot
+        val spotAccumWeights = mutableMapOf<String, Double>()
+        val spotTopKVotes = mutableMapOf<String, Int>()
+
+        for (i in topK.indices) {
+            val label = topK[i].spotLabel
+            spotAccumWeights[label] = (spotAccumWeights[label] ?: 0.0) + normWeights[i]
+            spotTopKVotes[label] = (spotTopKVotes[label] ?: 0) + 1
+        }
+
+        // Winner is candidate spot with highest accumulated distance-weighted score
+        val winner = spotAccumWeights.entries.sortedWith(
+            compareByDescending<Map.Entry<String, Double>> { it.value }
+                .thenBy { entry ->
+                    // Tie-break with minimum Euclidean distance if identical accumulated weight
+                    allMatches.firstOrNull { it.spotLabel == entry.key }?.euclideanDist ?: Double.MAX_VALUE
+                }
         ).first().key
 
         // Spot-level summary rankings (ordered by minimum Euclidean distance per spot)
@@ -192,39 +251,43 @@ class KnnStrategy(
         val rankings = mutableListOf<SpotRanking>()
         for ((index, spotBest) in bestPerSpot.withIndex()) {
             val rank = index + 1
-            val votesForSpot = voteGroups[spotBest.spotLabel]?.size ?: 0
+            val votesForSpot = spotTopKVotes[spotBest.spotLabel] ?: 0
+            val weightShare = (spotAccumWeights[spotBest.spotLabel] ?: 0.0) * 100.0
             val marker = if (spotBest.spotLabel == winner) "👉 [WINNER]" else "   "
             val distStr = "%.2f".format(spotBest.euclideanDist)
             val rmseStr = "%.2f".format(spotBest.rmseDist)
-            log.append("$marker #$rank ${spotBest.spotLabel} -> Min Dist: $distStr dBm (RMSE: $rmseStr dBm, Top-$effectiveK Votes: $votesForSpot/$effectiveK)\n")
+            val weightStr = "%.1f".format(weightShare)
+            log.append("$marker #$rank ${spotBest.spotLabel} -> Min Dist: $distStr dBm (RMSE: $rmseStr dBm, Top-$effectiveK Votes: $votesForSpot/$effectiveK, Weight: $weightStr%)\n")
             rankings.add(
                 SpotRanking(
                     rank = rank,
                     spotLabel = spotBest.spotLabel,
                     scoreMetric = spotBest.euclideanDist,
                     metricLabel = "Euclidean (dBm)",
-                    details = "Votes: $votesForSpot/$effectiveK, RMSE: $rmseStr dBm"
+                    details = "Votes: $votesForSpot/$effectiveK ($weightStr%), RMSE: $rmseStr dBm"
                 )
             )
         }
 
         log.append("\nTop-$effectiveK Nearest Individual Scans:\n")
         for ((idx, m) in topK.withIndex()) {
-            log.append("   ${idx + 1}. ${m.spotLabel} [scan #${m.scanIndex + 1}] -> Dist: ${"%.2f".format(m.euclideanDist)} dBm\n")
+            val wPct = "%.1f".format(normWeights[idx] * 100.0)
+            log.append("   ${idx + 1}. ${m.spotLabel} [scan #${m.scanIndex + 1}] -> Dist: ${"%.2f".format(m.euclideanDist)} dBm (Weight: $wPct%)\n")
         }
 
         val estCoords = estimateCoordinatesMetres(query)
         lastEstimatedCoords = estCoords
         if (estCoords != null) {
-            log.append("📐 Estimated 2D Position (Top-$effectiveK avg): (${"%.2f".format(estCoords.first)} m, ${"%.2f".format(estCoords.second)} m)\n")
+            log.append("📐 Estimated 2D Position (Distance-Weighted): (${"%.2f".format(estCoords.first)} m, ${"%.2f".format(estCoords.second)} m)\n")
         }
 
         val winnerBestDist = bestPerSpot.first { it.spotLabel == winner }.euclideanDist
         val runnerUpDist = bestPerSpot.firstOrNull { it.spotLabel != winner }?.euclideanDist
         val margin = if (runnerUpDist != null) runnerUpDist - winnerBestDist else null
         val marginStr = if (margin != null) " (Gap to #2: ${"%.2f".format(margin)} dBm)" else ""
+        val winnerWeightPct = "%.1f".format((spotAccumWeights[winner] ?: 1.0) * 100.0)
 
-        log.append("\n📍 PREDICTED LOCATION ($shortCode): $winner (Votes: ${voteGroups[winner]?.size ?: 1}/$effectiveK, Min Dist: ${"%.2f".format(winnerBestDist)} dBm)$marginStr\n")
+        log.append("\n📍 PREDICTED LOCATION ($shortCode): $winner (Weight: $winnerWeightPct%, Votes: ${spotTopKVotes[winner] ?: 1}/$effectiveK, Min Dist: ${"%.2f".format(winnerBestDist)} dBm)$marginStr\n")
 
         return LocalizationResult(
             strategyName = name,

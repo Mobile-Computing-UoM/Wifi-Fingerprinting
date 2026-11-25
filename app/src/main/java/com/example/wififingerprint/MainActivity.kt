@@ -65,6 +65,7 @@ import com.example.wififingerprint.strategy.RawApMeasurement
 import com.example.wififingerprint.strategy.RawSurveySpot
 import com.example.wififingerprint.strategy.ScanMode
 import com.example.wififingerprint.strategy.StrategyMode
+import com.example.wififingerprint.strategy.TemporalScanBuffer
 import com.google.android.material.tabs.TabLayout
 import com.example.wififingerprint.experiment.ExperimentConfig
 import com.example.wififingerprint.experiment.ExperimentCsvManager
@@ -233,6 +234,7 @@ class MainActivity : AppCompatActivity() {
     private val bssidToSsidMap = mutableMapOf<String, String>()
     private val scanSnapshots = mutableListOf<Map<String, Int>>()
     private val scanHandler = Handler(Looper.getMainLooper())
+    private val locateTemporalBuffer = TemporalScanBuffer(windowSize = 3, useMedian = true)
 
     private fun getActiveSurveyDatabase(): List<RawSurveySpot> {
         return if (activeMapSource == FingerprintSource.IMPORTED) {
@@ -806,8 +808,12 @@ class MainActivity : AppCompatActivity() {
                     log("  Readings (${m.rawReadings.size}): ${m.rawReadings} -> Avg: ${m.avgRssi} dBm\n")
                 }
 
+                // Temporal Sliding Window Preprocessing: feed live averaged scan into buffer to eliminate multipath spikes
+                val smoothedFingerprint = locateTemporalBuffer.addScan(averagedFingerprint)
+                log("🔄 Temporal Sliding Window: Filtered ${smoothedFingerprint.size} APs over last ${locateTemporalBuffer.currentCount} scans (Median filter)\n")
+
                 // Execute localization using the Strategy Pattern
-                val liveQuery = LiveQueryScan(averagedFingerprint, bssidToSsidMap)
+                val liveQuery = LiveQueryScan(smoothedFingerprint, bssidToSsidMap)
                 executeLocalization(liveQuery)
             }
             ScanMode.EXPERIMENT -> {
