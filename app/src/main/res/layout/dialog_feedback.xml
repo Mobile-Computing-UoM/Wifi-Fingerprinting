@@ -3,6 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
+    android:background="@color/surface_card"
     android:padding="20dp">
 
     <TextView
@@ -10,25 +11,27 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Inference Predictions:"
-        android:textSize="14sp"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="13.5sp"
+        android:textColor="@color/text_primary"
+        android:background="@drawable/bg_card_tonal"
+        android:padding="12dp"
         android:lineSpacingExtra="4dp"
-        android:layout_marginBottom="14dp" />
+        android:layout_marginBottom="16dp" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Choose Actual Ground Truth Location:"
+        android:text="Choose Actual Ground Truth Location"
         android:textStyle="bold"
-        android:textSize="14sp"
-        android:textColor="?android:attr/textColorPrimary"
-        android:layout_marginBottom="6dp" />
+        android:textSize="13.5sp"
+        android:textColor="@color/text_accent"
+        android:layout_marginBottom="8dp" />
 
     <Spinner
         android:id="@+id/spinnerActualSpot"
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        android:background="@android:drawable/btn_dropdown"
-        android:layout_marginBottom="10dp" />
+        android:background="@drawable/bg_input_rounded"
+        android:layout_marginBottom="8dp" />
 
 </LinearLayout>

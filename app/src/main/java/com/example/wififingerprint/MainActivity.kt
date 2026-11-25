@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import androidx.appcompat.app.AppCompatDelegate
 import android.location.LocationManager
 import android.net.wifi.WifiManager
 import android.os.Bundle
@@ -57,6 +59,7 @@ import com.example.wififingerprint.strategy.FuzzyMatrixStrategy
 import com.example.wififingerprint.strategy.KnnStrategy
 import com.example.wififingerprint.strategy.LiveQueryScan
 import com.example.wififingerprint.strategy.LocalizationResult
+import com.example.wififingerprint.strategy.MamdaniFuzzyStrategy
 import com.example.wififingerprint.strategy.PatternStrategy
 import com.example.wififingerprint.strategy.RawApMeasurement
 import com.example.wififingerprint.strategy.RawSurveySpot
@@ -125,6 +128,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnClearData: Button
     private lateinit var btnSettings: Button
     private lateinit var btnViewMatrix: Button
+    private lateinit var btnViewMamdaniRules: Button
     private lateinit var btnShareMap: Button
     private lateinit var btnImportMap: Button
     private lateinit var btnCalibrate: Button
@@ -169,6 +173,7 @@ class MainActivity : AppCompatActivity() {
     private val knnStrategy = KnnStrategy(1)
     private val fuzzyMatrixStrategy = FuzzyMatrixStrategy()
     private val patternStrategy = PatternStrategy(minSharedAps = 2)
+    private val mamdaniFuzzyStrategy = MamdaniFuzzyStrategy()
 
     // Dynamic WakeLock to keep screen on ONLY while surveying
     private var wakeLock: PowerManager.WakeLock? = null
@@ -243,6 +248,7 @@ class MainActivity : AppCompatActivity() {
         knnStrategy.buildModel(activeSpots)
         fuzzyMatrixStrategy.buildModel(activeSpots)
         patternStrategy.buildModel(activeSpots)
+        mamdaniFuzzyStrategy.buildModel(activeSpots)
     }
 
     private fun loadSettings() {
@@ -318,11 +324,17 @@ class MainActivity : AppCompatActivity() {
             StrategyMode.KNN -> "Scan k-NN (k=$knnK)"
             StrategyMode.FUZZY_MATRIX -> "Fuzzy Matrix"
             StrategyMode.PATTERN -> "Cross-Device Pattern"
+            StrategyMode.MAMDANI -> "Mamdani FIS"
             StrategyMode.BOTH -> "k-NN vs Fuzzy Matrix"
-            StrategyMode.ALL -> "All 3 (Side-by-Side)"
+            StrategyMode.ALL -> "All 4 (Side-by-Side)"
         }
         val calibInfo = if (isAutoCalibrationEnabled) {
-            val calibStrat = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy" else "k-NN"
+            val calibStrat = when (autoCalibStrategy) {
+                "FUZZY_MATRIX" -> "Fuzzy Matrix"
+                "PATTERN" -> "Pattern"
+                "MAMDANI" -> "Mamdani FIS"
+                else -> "k-NN"
+            }
             val limitDesc = if (autoCalibMaxExtraScans > 0) "+$autoCalibMaxExtraScans max" else "unlimited"
             "ON (≥$autoCalibTarget% via $calibStrat, $limitDesc)"
         } else {
@@ -349,8 +361,9 @@ class MainActivity : AppCompatActivity() {
             StrategyMode.KNN -> "2. Where Am I? (Scan k-NN)"
             StrategyMode.FUZZY_MATRIX -> "2. Where Am I? (Fuzzy Matrix)"
             StrategyMode.PATTERN -> "2. Where Am I? (Pattern Match)"
+            StrategyMode.MAMDANI -> "2. Where Am I? (Mamdani FIS)"
             StrategyMode.BOTH -> "2. Where Am I? (Compare 2)"
-            StrategyMode.ALL -> "2. Where Am I? (Compare All 3)"
+            StrategyMode.ALL -> "2. Where Am I? (Compare All 4)"
         }
     }
 
@@ -407,6 +420,7 @@ class MainActivity : AppCompatActivity() {
         btnClearData.isEnabled = false
         btnSettings.isEnabled = false
         btnViewMatrix.isEnabled = false
+        btnViewMamdaniRules.isEnabled = false
         btnStopSurvey.visibility = View.GONE
 
         acquireScreenWakeLock()
@@ -502,11 +516,14 @@ class MainActivity : AppCompatActivity() {
         val editMaxLimit = dialogView.findViewById<EditText>(R.id.editAutoCalibMaxLimit)
         val rbAutoFuzzy = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibFuzzy)
         val rbAutoKnn = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibKnn)
+        val rbAutoPattern = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibPattern)
+        val rbAutoMamdani = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibMamdani)
 
         val rbBoth = dialogView.findViewById<RadioButton>(R.id.rbStrategyBoth)
         val rbKnn = dialogView.findViewById<RadioButton>(R.id.rbStrategyKnn)
         val rbFuzzy = dialogView.findViewById<RadioButton>(R.id.rbStrategyFuzzy)
         val rbPattern = dialogView.findViewById<RadioButton>(R.id.rbStrategyPattern)
+        val rbMamdani = dialogView.findViewById<RadioButton>(R.id.rbStrategyMamdani)
         val rbAll = dialogView.findViewById<RadioButton>(R.id.rbStrategyAll)
 
         editSurvey.setText(surveySampleCount.toString())
@@ -522,10 +539,11 @@ class MainActivity : AppCompatActivity() {
 
         editTargetAcc.setText(autoCalibTarget.toString())
         editMaxLimit.setText(autoCalibMaxExtraScans.toString())
-        if (autoCalibStrategy == "KNN") {
-            rbAutoKnn.isChecked = true
-        } else {
-            rbAutoFuzzy.isChecked = true
+        when (autoCalibStrategy) {
+            "KNN" -> rbAutoKnn.isChecked = true
+            "PATTERN" -> rbAutoPattern?.isChecked = true
+            "MAMDANI" -> rbAutoMamdani?.isChecked = true
+            else -> rbAutoFuzzy.isChecked = true
         }
 
         when (selectedStrategyMode) {
@@ -533,6 +551,7 @@ class MainActivity : AppCompatActivity() {
             StrategyMode.KNN -> rbKnn.isChecked = true
             StrategyMode.FUZZY_MATRIX -> rbFuzzy.isChecked = true
             StrategyMode.PATTERN -> rbPattern?.isChecked = true
+            StrategyMode.MAMDANI -> rbMamdani?.isChecked = true
             StrategyMode.ALL -> rbAll?.isChecked = true
         }
 
@@ -546,12 +565,18 @@ class MainActivity : AppCompatActivity() {
                 val splitVal = (editTestSplit.text.toString().toIntOrNull() ?: testSplitPercent).coerceIn(10, 50)
                 val targetAcc = (editTargetAcc.text.toString().toIntOrNull() ?: autoCalibTarget).coerceIn(50, 100)
                 val maxLimitVal = (editMaxLimit.text.toString().toIntOrNull() ?: autoCalibMaxExtraScans).coerceAtLeast(0)
-                val calibStrat = if (rbAutoKnn.isChecked) "KNN" else "FUZZY_MATRIX"
+                val calibStrat = when {
+                    rbAutoKnn.isChecked -> "KNN"
+                    rbAutoPattern?.isChecked == true -> "PATTERN"
+                    rbAutoMamdani?.isChecked == true -> "MAMDANI"
+                    else -> "FUZZY_MATRIX"
+                }
 
                 val chosenMode = when {
                     rbKnn.isChecked -> StrategyMode.KNN
                     rbFuzzy.isChecked -> StrategyMode.FUZZY_MATRIX
                     rbPattern?.isChecked == true -> StrategyMode.PATTERN
+                    rbMamdani?.isChecked == true -> StrategyMode.MAMDANI
                     rbAll?.isChecked == true -> StrategyMode.ALL
                     else -> StrategyMode.BOTH
                 }
@@ -619,21 +644,38 @@ class MainActivity : AppCompatActivity() {
                 evalKnnStrategy.buildModel(candidateDatabase)
                 val evalFuzzyStrategy = FuzzyMatrixStrategy()
                 evalFuzzyStrategy.buildModel(candidateDatabase)
+                val evalPatternStrategy = PatternStrategy(minSharedAps = 2)
+                evalPatternStrategy.buildModel(candidateDatabase)
+                val evalMamdaniStrategy = MamdaniFuzzyStrategy()
+                evalMamdaniStrategy.buildModel(candidateDatabase)
 
                 var knnCorrect = 0
                 var fuzzyCorrect = 0
+                var patternCorrect = 0
+                var mamdaniCorrect = 0
                 for (testScan in testSnapshots) {
                     val query = LiveQueryScan(testScan, bssidToSsidMap)
                     val knnRes = evalKnnStrategy.infer(query)
                     val fuzzyRes = evalFuzzyStrategy.infer(query)
+                    val patternRes = evalPatternStrategy.infer(query)
+                    val mamdaniRes = evalMamdaniStrategy.infer(query)
 
                     if (knnRes.predictedSpot == spot) knnCorrect++
                     if (fuzzyRes.predictedSpot == spot) fuzzyCorrect++
+                    if (patternRes.predictedSpot == spot) patternCorrect++
+                    if (mamdaniRes.predictedSpot == spot) mamdaniCorrect++
                 }
 
                 val knnAcc = if (testScansCount > 0) (knnCorrect.toDouble() / testScansCount) * 100.0 else 100.0
                 val fuzzyAcc = if (testScansCount > 0) (fuzzyCorrect.toDouble() / testScansCount) * 100.0 else 100.0
-                val benchmarkAcc = if (autoCalibStrategy == "FUZZY_MATRIX") fuzzyAcc else knnAcc
+                val patternAcc = if (testScansCount > 0) (patternCorrect.toDouble() / testScansCount) * 100.0 else 100.0
+                val mamdaniAcc = if (testScansCount > 0) (mamdaniCorrect.toDouble() / testScansCount) * 100.0 else 100.0
+                val benchmarkAcc = when (autoCalibStrategy) {
+                    "FUZZY_MATRIX" -> fuzzyAcc
+                    "PATTERN" -> patternAcc
+                    "MAMDANI" -> mamdaniAcc
+                    else -> knnAcc
+                }
 
                 // Auto-Calibration condition check (skipped if user explicitly requested stop)
                 val extraScansDone = activeTargetSamples - surveySampleCount
@@ -646,7 +688,12 @@ class MainActivity : AppCompatActivity() {
                 if (isAutoCalibrationEnabled && !userRequestedStop && benchmarkAcc < autoCalibTarget && canExtend) {
                     val nextTarget = activeTargetSamples + 5
                     activeTargetSamples = nextTarget
-                    val stratName = if (autoCalibStrategy == "FUZZY_MATRIX") "Fuzzy Matrix" else "Centroid k-NN"
+                    val stratName = when (autoCalibStrategy) {
+                        "FUZZY_MATRIX" -> "Fuzzy Matrix"
+                        "PATTERN" -> "Cross-Device Pattern"
+                        "MAMDANI" -> "Mamdani FIS"
+                        else -> "Centroid k-NN"
+                    }
                     val limitNotice = if (autoCalibMaxExtraScans > 0) " (Max limit: +$autoCalibMaxExtraScans extra scans)" else " (Unlimited mode)"
                     log("\n⚠️ Auto-Calibration: $stratName accuracy is ${"%.1f".format(benchmarkAcc)}% (< target $autoCalibTarget%).\n")
                     log("⚡ Extending survey: collecting +5 more scans (Target now $activeTargetSamples scans)$limitNotice...\n")
@@ -787,6 +834,7 @@ class MainActivity : AppCompatActivity() {
         btnClearData.isEnabled = true
         btnSettings.isEnabled = true
         btnViewMatrix.isEnabled = true
+        btnViewMamdaniRules.isEnabled = true
         btnStopSurvey.visibility = View.GONE
         userRequestedStop = false
         releaseScreenWakeLock()
@@ -819,10 +867,11 @@ class MainActivity : AppCompatActivity() {
             query
         }
 
-        // Evaluate strategies: k-NN and Fuzzy use corrected query; Pattern always uses raw query
+        // Evaluate strategies: k-NN, Fuzzy Matrix, and Mamdani FIS use corrected query; Pattern always uses raw query
         val resKnn = knnStrategy.infer(queryForCentroid)
         val resFuzzy = fuzzyMatrixStrategy.infer(queryForCentroid)
         val resPattern = patternStrategy.infer(query)
+        val resMamdani = mamdaniFuzzyStrategy.infer(queryForCentroid)
 
         when (selectedStrategyMode) {
             StrategyMode.KNN -> {
@@ -835,6 +884,10 @@ class MainActivity : AppCompatActivity() {
 
             StrategyMode.PATTERN -> {
                 log(resPattern.logOutput)
+            }
+
+            StrategyMode.MAMDANI -> {
+                log(resMamdani.logOutput)
             }
 
             StrategyMode.BOTH -> {
@@ -869,28 +922,32 @@ class MainActivity : AppCompatActivity() {
                 log(resKnn.logOutput)
                 log(resFuzzy.logOutput)
                 log(resPattern.logOutput)
+                log(resMamdani.logOutput)
 
                 val knnWinner = resKnn.predictedSpot ?: "None"
                 val fuzzyWinner = resFuzzy.predictedSpot ?: "None"
                 val patternWinner = resPattern.predictedSpot ?: "None"
+                val mamdaniWinner = resMamdani.predictedSpot ?: "None"
 
                 val summary = StringBuilder()
                 summary.append("\n========================================\n")
-                summary.append("🏆 TRI-STRATEGY COMPARISON (Same Scan Data)\n")
+                summary.append("🏆 QUAD-STRATEGY COMPARISON (Same Scan Data)\n")
                 summary.append("========================================\n")
                 val knnGap = if (resKnn.confidenceMargin != null) " (Gap: ${"%.2f".format(resKnn.confidenceMargin)} dBm)" else ""
                 val fuzzyMargin = if (resFuzzy.confidenceMargin != null) " (Winning Margin: +${"%.4f".format(resFuzzy.confidenceMargin)})" else ""
                 val patMargin = if (resPattern.confidenceMargin != null) " (Separation: ${"%.2f".format(resPattern.confidenceMargin)} dB)" else ""
+                val mamMargin = if (resMamdani.confidenceMargin != null) " (Margin: +${"%.4f".format(resMamdani.confidenceMargin)})" else ""
 
                 summary.append("• Strategy 1 (k-NN):         $knnWinner$knnGap\n")
                 summary.append("• Strategy 2 (Fuzzy Matrix): $fuzzyWinner$fuzzyMargin\n")
-                summary.append("• Strategy 3 (Cross Pattern):$patternWinner$patMargin\n\n")
+                summary.append("• Strategy 3 (Cross Pattern):$patternWinner$patMargin\n")
+                summary.append("• Strategy 4 (Mamdani FIS):  $mamdaniWinner$mamMargin\n\n")
 
-                val allAgree = (knnWinner == fuzzyWinner && fuzzyWinner == patternWinner)
+                val allAgree = (knnWinner == fuzzyWinner && fuzzyWinner == patternWinner && patternWinner == mamdaniWinner)
                 if (allAgree) {
-                    summary.append("🎯 UNANIMOUS AGREEMENT: All 3 algorithms predicted '$knnWinner'\n")
+                    summary.append("🎯 UNANIMOUS AGREEMENT: All 4 algorithms predicted '$knnWinner'\n")
                 } else {
-                    summary.append("📊 DIVERGENT PREDICTION: Pattern predicts '$patternWinner' vs k-NN '$knnWinner'\n")
+                    summary.append("📊 DIVERGENT PREDICTION: k-NN='$knnWinner' | Matrix='$fuzzyWinner' | Pattern='$patternWinner' | Mamdani='$mamdaniWinner'\n")
                 }
                 summary.append("========================================\n\n")
                 log(summary.toString())
@@ -898,7 +955,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Prompt user for ground-truth accuracy feedback and persist outcome
-        showFeedbackDialog(query, resKnn, resFuzzy, resPattern, calib?.offsetDb)
+        showFeedbackDialog(query, resKnn, resFuzzy, resPattern, resMamdani, calib?.offsetDb)
     }
 
     /**
@@ -910,6 +967,7 @@ class MainActivity : AppCompatActivity() {
         resKnn: LocalizationResult,
         resFuzzy: LocalizationResult,
         resPattern: LocalizationResult,
+        resMamdani: LocalizationResult,
         calibOffsetDb: Double? = null
     ) {
         val spotNames = getActiveSurveyDatabase().map { it.spotLabel }.distinct().sorted()
@@ -918,6 +976,7 @@ class MainActivity : AppCompatActivity() {
         val knnWinner = resKnn.predictedSpot ?: "None"
         val fuzzyWinner = resFuzzy.predictedSpot ?: "None"
         val patternWinner = resPattern.predictedSpot ?: "None"
+        val mamdaniWinner = resMamdani.predictedSpot ?: "None"
 
         val dialogView = layoutInflater.inflate(R.layout.dialog_feedback, null, false)
         val tvSummary = dialogView.findViewById<TextView>(R.id.tvFeedbackSummary)
@@ -929,6 +988,7 @@ class MainActivity : AppCompatActivity() {
         val preferredWinner = when (selectedStrategyMode) {
             StrategyMode.PATTERN -> patternWinner
             StrategyMode.KNN -> knnWinner
+            StrategyMode.MAMDANI -> mamdaniWinner
             else -> if (spotNames.contains(fuzzyWinner)) fuzzyWinner else patternWinner
         }
         val defaultSelection = if (spotNames.contains(preferredWinner)) preferredWinner else spotNames.first()
@@ -940,11 +1000,13 @@ class MainActivity : AppCompatActivity() {
         val knnGapStr = if (resKnn.confidenceMargin != null) " (Gap: ${"%.2f".format(resKnn.confidenceMargin)} dBm)" else ""
         val fuzzyMarginStr = if (resFuzzy.confidenceMargin != null) " (Margin: +${"%.4f".format(resFuzzy.confidenceMargin)})" else ""
         val patMarginStr = if (resPattern.confidenceMargin != null) " (Sep: ${"%.2f".format(resPattern.confidenceMargin)} dB)" else ""
+        val mamMarginStr = if (resMamdani.confidenceMargin != null) " (Margin: +${"%.4f".format(resMamdani.confidenceMargin)})" else ""
 
         tvSummary.text = "Inference Predictions:\n" +
                 "• Strategy 1 (k-NN): $knnWinner$knnGapStr\n" +
-                "• Strategy 2 (Fuzzy): $fuzzyWinner$fuzzyMarginStr\n" +
-                "• Strategy 3 (Pattern): $patternWinner$patMarginStr\n\n" +
+                "• Strategy 2 (Fuzzy Matrix): $fuzzyWinner$fuzzyMarginStr\n" +
+                "• Strategy 3 (Pattern): $patternWinner$patMarginStr\n" +
+                "• Strategy 4 (Mamdani FIS): $mamdaniWinner$mamMarginStr\n\n" +
                 "Please select your ACTUAL current location to evaluate and persist accuracy:"
 
         androidx.appcompat.app.AlertDialog.Builder(this)
@@ -955,8 +1017,9 @@ class MainActivity : AppCompatActivity() {
                 val isKnnCorrect = actualSpot.equals(knnWinner, ignoreCase = true)
                 val isFuzzyCorrect = actualSpot.equals(fuzzyWinner, ignoreCase = true)
                 val isPatternCorrect = actualSpot.equals(patternWinner, ignoreCase = true)
+                val isMamdaniCorrect = actualSpot.equals(mamdaniWinner, ignoreCase = true)
 
-                saveEvaluationRecord(actualSpot, resKnn, resFuzzy, resPattern, query, calibOffsetDb)
+                saveEvaluationRecord(actualSpot, resKnn, resFuzzy, resPattern, resMamdani, query, calibOffsetDb)
                 if (historyAdapter != null) {
                     refreshHistoryView()
                 }
@@ -968,11 +1031,14 @@ class MainActivity : AppCompatActivity() {
                 feedbackMsg.append("• Actual Ground Truth:  $actualSpot\n")
                 val knnErrM = KnnStrategy.computeErrorMeters(actualSpot, knnWinner, knnStrategy.lastEstimatedCoords)
                 val fuzzyErrM = KnnStrategy.computeErrorMeters(actualSpot, fuzzyWinner, null)
+                val mamdaniErrM = KnnStrategy.computeErrorMeters(actualSpot, mamdaniWinner, mamdaniFuzzyStrategy.lastEstimatedCoords)
                 val knnErrStr = if (knnErrM != null) " (Error: ${"%.2f".format(knnErrM)} m)" else ""
                 val fuzzyErrStr = if (fuzzyErrM != null) " (Error: ${"%.2f".format(fuzzyErrM)} m)" else ""
+                val mamdaniErrStr = if (mamdaniErrM != null) " (COG Error: ${"%.2f".format(mamdaniErrM)} m)" else ""
                 feedbackMsg.append("• Strategy 1 (k-NN):    $knnWinner -> ${if (isKnnCorrect) "✅ CORRECT" else "❌ WRONG"}$knnErrStr\n")
-                feedbackMsg.append("• Strategy 2 (Fuzzy):   $fuzzyWinner -> ${if (isFuzzyCorrect) "✅ CORRECT" else "❌ WRONG"}$fuzzyErrStr\n")
+                feedbackMsg.append("• Strategy 2 (Matrix):  $fuzzyWinner -> ${if (isFuzzyCorrect) "✅ CORRECT" else "❌ WRONG"}$fuzzyErrStr\n")
                 feedbackMsg.append("• Strategy 3 (Pattern): $patternWinner -> ${if (isPatternCorrect) "✅ CORRECT" else "❌ WRONG"}\n")
+                feedbackMsg.append("• Strategy 4 (Mamdani): $mamdaniWinner -> ${if (isMamdaniCorrect) "✅ CORRECT" else "❌ WRONG"}$mamdaniErrStr\n")
                 if (calibOffsetDb != null) {
                     val sign = if (calibOffsetDb >= 0) "+" else ""
                     feedbackMsg.append("• Antenna Offset:       $sign${"%.1f".format(Locale.US, calibOffsetDb)} dB\n")
@@ -988,13 +1054,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Appends validation result to localization_feedback.csv using the 17-column format.
+     * Appends validation result to localization_feedback.csv using the 20-column format.
      */
     private fun saveEvaluationRecord(
         actualSpot: String,
         resKnn: LocalizationResult,
         resFuzzy: LocalizationResult,
         resPattern: LocalizationResult,
+        resMamdani: LocalizationResult,
         query: LiveQueryScan,
         calibOffsetDb: Double?
     ) {
@@ -1017,6 +1084,10 @@ class MainActivity : AppCompatActivity() {
             val patternPred = resPattern.predictedSpot ?: "None"
             val patternCorrect = patternPred.equals(actualSpot, ignoreCase = true)
             val patternMargin = resPattern.confidenceMargin ?: 0.0
+
+            val mamdaniPred = resMamdani.predictedSpot ?: "None"
+            val mamdaniCorrect = mamdaniPred.equals(actualSpot, ignoreCase = true)
+            val mamdaniMargin = resMamdani.confidenceMargin ?: 0.0
 
             val queryStr = query.readings.entries.joinToString(";") { "${it.key}:${it.value}" }
 
@@ -1043,7 +1114,10 @@ class MainActivity : AppCompatActivity() {
                 mapSource = activeMapSource.name,
                 refDeviceModel = refModel,
                 locateDeviceModel = DeviceInfo.getDeviceModel(),
-                calibOffsetDb = calibOffsetDb
+                calibOffsetDb = calibOffsetDb,
+                mamdaniPredicted = mamdaniPred,
+                mamdaniCorrect = mamdaniCorrect,
+                mamdaniMargin = mamdaniMargin
             )
 
             FeedbackCsv.append(file, record)
@@ -1073,6 +1147,31 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Close", null)
             .setNeutralButton("Print to Terminal") { _, _ ->
                 log("\n" + matrixText + "\n")
+            }
+            .show()
+    }
+
+    /**
+     * Displays a scrollable dialog showing the auto-generated Mamdani Fuzzy Inference System (FIS)
+     * linguistic membership functions and IF-THEN rule base.
+     */
+    private fun showMamdaniRulesDialog() {
+        if (!mamdaniFuzzyStrategy.isModelLoaded()) {
+            Toast.makeText(this, "Mamdani FIS rule base is empty! Survey spots or load data first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val rulesText = mamdaniFuzzyStrategy.getFormattedRuleBase()
+        val view = layoutInflater.inflate(R.layout.dialog_matrix_view, null, false)
+        val tvMatrix = view.findViewById<TextView>(R.id.tvMatrixContent)
+        tvMatrix.text = rulesText
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🧠 Mamdani Fuzzy Rule Base (FIS)")
+            .setView(view)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Print to Terminal") { _, _ ->
+                log("\n" + rulesText + "\n")
             }
             .show()
     }
@@ -1135,10 +1234,17 @@ class MainActivity : AppCompatActivity() {
             val knnCorrectCount = records.count { it.knnCorrect }
             val fuzzyCorrectCount = records.count { it.fuzzyCorrect }
             val patCorrectCount = records.count { it.patternCorrect }
+            val mamRecords = records.filter { it.mamdaniPredicted.isNotBlank() }
             val knnPct = (knnCorrectCount.toDouble() / count * 100).toInt()
             val fuzzyPct = (fuzzyCorrectCount.toDouble() / count * 100).toInt()
             val patPct = (patCorrectCount.toDouble() / count * 100).toInt()
-            tvHistoryStats.text = "Records: $count | k-NN: $knnPct% | Fuzzy: $fuzzyPct% | Pattern: $patPct%"
+            val mamPart = if (mamRecords.isNotEmpty()) {
+                val mamPct = (mamRecords.count { it.mamdaniCorrect }.toDouble() / mamRecords.size * 100).toInt()
+                " | Mamdani: $mamPct%"
+            } else {
+                ""
+            }
+            tvHistoryStats.text = "Records: $count | k-NN: $knnPct% | Matrix: $fuzzyPct% | Pat: $patPct%$mamPart"
         }
     }
 
@@ -1432,6 +1538,7 @@ class MainActivity : AppCompatActivity() {
                 btnClearData.isEnabled = true
                 btnSettings.isEnabled = true
                 btnViewMatrix.isEnabled = true
+        btnViewMamdaniRules.isEnabled = true
                 releaseScreenWakeLock()
                 return
             }
@@ -1616,8 +1723,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val themePrefs = getSharedPreferences("FingerprintSettings", Context.MODE_PRIVATE)
+        val savedNightMode = themePrefs.getInt("theme_night_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        if (AppCompatDelegate.getDefaultNightMode() != savedNightMode) {
+            AppCompatDelegate.setDefaultNightMode(savedNightMode)
+        }
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        val btnThemeToggle = findViewById<Button>(R.id.btnThemeToggle)
+        val isCurrentlyDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        btnThemeToggle.text = if (isCurrentlyDark) "☀️" else "🌙"
+        btnThemeToggle.setOnClickListener {
+            val nextMode = if (isCurrentlyDark) {
+                AppCompatDelegate.MODE_NIGHT_NO
+            } else {
+                AppCompatDelegate.MODE_NIGHT_YES
+            }
+            themePrefs.edit().putInt("theme_night_mode", nextMode).apply()
+            AppCompatDelegate.setDefaultNightMode(nextMode)
+        }
 
         tabLayout = findViewById(R.id.tabLayout)
         layoutScannerView = findViewById(R.id.layoutScannerView)
@@ -1761,6 +1886,7 @@ class MainActivity : AppCompatActivity() {
         btnClearData = findViewById(R.id.btnClearData)
         btnSettings = findViewById(R.id.btnSettings)
         btnViewMatrix = findViewById(R.id.btnViewMatrix)
+        btnViewMamdaniRules = findViewById(R.id.btnViewMamdaniRules)
         btnShareMap = findViewById(R.id.btnShareMap)
         btnImportMap = findViewById(R.id.btnImportMap)
         btnCalibrate = findViewById(R.id.btnCalibrate)
@@ -1789,6 +1915,8 @@ class MainActivity : AppCompatActivity() {
             knnStrategy = knnStrategy,
             fuzzyMatrixStrategy = fuzzyMatrixStrategy,
             csvManager = experimentCsvManager,
+            patternStrategy = patternStrategy,
+            mamdaniFuzzyStrategy = mamdaniFuzzyStrategy,
             listener = object : ExperimentListener {
                 override fun onScanProgress(trialIndex: Int, totalTrials: Int, scanIndex: Int, totalScans: Int) {
                     runOnUiThread {
@@ -1860,6 +1988,7 @@ class MainActivity : AppCompatActivity() {
                 btnClearData.isEnabled = false
                 btnSettings.isEnabled = false
                 btnViewMatrix.isEnabled = false
+        btnViewMamdaniRules.isEnabled = false
                 acquireScreenWakeLock()
                 rebuildStrategyModels()
                 experimentRunner.startExperiment(config)
@@ -1904,6 +2033,15 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             showFuzzyMatrixDialog()
+        }
+
+        // View Mamdani Rules Button: Inspect the auto-generated Mamdani FIS rule base
+        btnViewMamdaniRules.setOnClickListener {
+            if (isScanningActive) {
+                log("\n⚠️ A scan is already in progress, please wait...\n")
+                return@setOnClickListener
+            }
+            showMamdaniRulesDialog()
         }
 
         // Map Source Toggle: Local vs Imported Reference
@@ -1980,6 +2118,7 @@ class MainActivity : AppCompatActivity() {
                 btnClearData.isEnabled = true
                 btnSettings.isEnabled = true
                 btnViewMatrix.isEnabled = true
+        btnViewMamdaniRules.isEnabled = true
                 btnStopSurvey.visibility = View.GONE
                 userRequestedStop = false
                 releaseScreenWakeLock()
@@ -2013,6 +2152,7 @@ class MainActivity : AppCompatActivity() {
             btnClearData.isEnabled = false
             btnSettings.isEnabled = false
             btnViewMatrix.isEnabled = false
+        btnViewMamdaniRules.isEnabled = false
             btnStopSurvey.visibility = View.VISIBLE
             btnStopSurvey.isEnabled = true
 
@@ -2099,6 +2239,7 @@ class MainActivity : AppCompatActivity() {
             btnClearData.isEnabled = false
             btnSettings.isEnabled = false
             btnViewMatrix.isEnabled = false
+        btnViewMamdaniRules.isEnabled = false
 
             currentScanMode = ScanMode.LOCATE
             sampleBuffer.clear()

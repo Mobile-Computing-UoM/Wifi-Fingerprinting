@@ -3,6 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
+    android:background="@color/surface_card"
     android:padding="20dp">
 
     <TextView
@@ -11,7 +12,7 @@
         android:text="🎯 One-Spot Antenna Calibration"
         android:textStyle="bold"
         android:textSize="16sp"
-        android:textColor="#1A237E"
+        android:textColor="@color/text_accent"
         android:layout_marginBottom="8dp" />
 
     <TextView
@@ -19,23 +20,24 @@
         android:layout_height="wrap_content"
         android:text="Stand at a known physical spot. The app will measure the signal contrast and compute this phone's hardware dB offset relative to the imported survey phone."
         android:textSize="13sp"
-        android:textColor="#424242"
-        android:layout_marginBottom="14dp" />
+        android:textColor="@color/text_secondary"
+        android:lineSpacingExtra="2dp"
+        android:layout_marginBottom="16dp" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Select Current Physical Spot:"
+        android:text="Select Current Physical Spot"
         android:textStyle="bold"
         android:textSize="13sp"
-        android:textColor="#212121"
-        android:layout_marginBottom="4dp" />
+        android:textColor="@color/text_primary"
+        android:layout_marginBottom="6dp" />
 
     <Spinner
         android:id="@+id/spinnerCalibSpot"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@android:drawable/btn_dropdown"
+        android:layout_height="48dp"
+        android:background="@drawable/bg_input_rounded"
         android:layout_marginBottom="14dp" />
 
     <TextView
@@ -44,6 +46,8 @@
         android:layout_height="wrap_content"
         android:text="ℹ️ Will take 10 scans and compute median antenna bias across shared APs."
         android:textSize="12sp"
-        android:textColor="#555555" />
+        android:textColor="@color/text_muted"
+        android:background="@drawable/bg_card_tonal"
+        android:padding="10dp" />
 
 </LinearLayout>

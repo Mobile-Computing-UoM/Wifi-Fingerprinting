@@ -25,12 +25,15 @@ data class FeedbackHistoryRecord(
     val refDeviceModel: String = "",
     val locateDeviceModel: String = "",
     val calibOffsetDb: Double? = null,
-    val rawCsvLine: String = ""
+    val rawCsvLine: String = "",
+    val mamdaniPredicted: String = "",
+    val mamdaniCorrect: Boolean = false,
+    val mamdaniMargin: Double = 0.0
 )
 
 object FeedbackCsv {
 
-    const val HEADER = "timestamp_ms,iso_time,actual_spot,knn_predicted,knn_correct,knn_margin,fuzzy_predicted,fuzzy_correct,fuzzy_margin,query_signals,pattern_predicted,pattern_correct,pattern_margin,map_source,ref_device_model,locate_device_model,calib_offset_db"
+    const val HEADER = "timestamp_ms,iso_time,actual_spot,knn_predicted,knn_correct,knn_margin,fuzzy_predicted,fuzzy_correct,fuzzy_margin,query_signals,pattern_predicted,pattern_correct,pattern_margin,map_source,ref_device_model,locate_device_model,calib_offset_db,mamdani_predicted,mamdani_correct,mamdani_margin"
 
     /**
      * Parses a CSV line safely respecting quotation marks around fields.
@@ -87,6 +90,15 @@ object FeedbackCsv {
         val locateDeviceModel = parts.getOrNull(15)?.trim() ?: ""
         val calibOffsetDb = parts.getOrNull(16)?.trim()?.toDoubleOrNull()
 
+        // Extended Mamdani FIS columns (indices 17..19, backward-compatible)
+        val mamdaniPredicted = parts.getOrNull(17)?.trim() ?: ""
+        val mamdaniCorrect = if (parts.size > 18) {
+            (parts[18] == "1" || parts[18].equals("true", ignoreCase = true))
+        } else {
+            mamdaniPredicted.isNotBlank() && mamdaniPredicted.equals(actualSpot, ignoreCase = true)
+        }
+        val mamdaniMargin = parts.getOrNull(19)?.toDoubleOrNull() ?: 0.0
+
         return FeedbackHistoryRecord(
             timestampMs = timestampMs,
             isoTime = isoTime,
@@ -105,17 +117,21 @@ object FeedbackCsv {
             refDeviceModel = refDeviceModel,
             locateDeviceModel = locateDeviceModel,
             calibOffsetDb = calibOffsetDb,
-            rawCsvLine = trimmed
+            rawCsvLine = trimmed,
+            mamdaniPredicted = mamdaniPredicted,
+            mamdaniCorrect = mamdaniCorrect,
+            mamdaniMargin = mamdaniMargin
         )
     }
 
     /**
-     * Serializes a FeedbackHistoryRecord into a CSV line conforming to the 17-column format.
+     * Serializes a FeedbackHistoryRecord into a CSV line conforming to the 20-column format.
      */
     fun serialize(record: FeedbackHistoryRecord): String {
         val knnCorrectInt = if (record.knnCorrect) 1 else 0
         val fuzzyCorrectInt = if (record.fuzzyCorrect) 1 else 0
         val patternCorrectInt = if (record.patternCorrect) 1 else 0
+        val mamdaniCorrectInt = if (record.mamdaniCorrect) 1 else 0
         val calibStr = record.calibOffsetDb?.let { "%.2f".format(java.util.Locale.US, it) } ?: ""
 
         return "${record.timestampMs},${record.isoTime},${record.actualSpot}," +
@@ -124,7 +140,8 @@ object FeedbackCsv {
                 "\"${record.querySignals}\"," +
                 "${record.patternPredicted},$patternCorrectInt,${record.patternMargin}," +
                 "${record.mapSource},${record.refDeviceModel},${record.locateDeviceModel}," +
-                calibStr
+                "$calibStr," +
+                "${record.mamdaniPredicted},$mamdaniCorrectInt,${record.mamdaniMargin}"
     }
 
     /**

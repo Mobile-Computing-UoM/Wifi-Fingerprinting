@@ -18,7 +18,8 @@ data class ExperimentConfig(
 )
 
 /**
- * Represents the evaluation outcome of a single trial iteration.
+ * Represents the evaluation outcome of a single trial iteration across all 4 strategies
+ * (k-NN, Fuzzy 3D Matrix, Cross-Device Pattern, and Mamdani FIS).
  */
 data class ExperimentIterationResult(
     val timestampMs: Long,
@@ -41,7 +42,17 @@ data class ExperimentIterationResult(
     val fuzzyErrorMeters: Double,
     val fuzzyCorrect: Boolean,
     val rawSignals: String,
-    val rawCsvLine: String = ""
+    val rawCsvLine: String = "",
+    val patternPredSpot: String = "",
+    val patternPredX: Double = 0.0,
+    val patternPredY: Double = 0.0,
+    val patternErrorMeters: Double = 0.0,
+    val patternCorrect: Boolean = false,
+    val mamdaniPredSpot: String = "",
+    val mamdaniPredX: Double = 0.0,
+    val mamdaniPredY: Double = 0.0,
+    val mamdaniErrorMeters: Double = 0.0,
+    val mamdaniCorrect: Boolean = false
 ) {
     companion object {
         fun create(
@@ -60,7 +71,15 @@ data class ExperimentIterationResult(
             fuzzyPredX: Double,
             fuzzyPredY: Double,
             fuzzyErrorMeters: Double,
-            rawSignalsMap: Map<String, Int>
+            rawSignalsMap: Map<String, Int>,
+            patternPredSpot: String = "",
+            patternPredX: Double = 0.0,
+            patternPredY: Double = 0.0,
+            patternErrorMeters: Double = 0.0,
+            mamdaniPredSpot: String = "",
+            mamdaniPredX: Double = 0.0,
+            mamdaniPredY: Double = 0.0,
+            mamdaniErrorMeters: Double = 0.0
         ): ExperimentIterationResult {
             val ts = System.currentTimeMillis()
             val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
@@ -69,6 +88,8 @@ data class ExperimentIterationResult(
             val iso = sdf.format(Date(ts))
             val knnCorr = actualSpot.trim().equals(knnPredSpot.trim(), ignoreCase = true)
             val fuzzyCorr = actualSpot.trim().equals(fuzzyPredSpot.trim(), ignoreCase = true)
+            val patternCorr = patternPredSpot.isNotBlank() && actualSpot.trim().equals(patternPredSpot.trim(), ignoreCase = true)
+            val mamdaniCorr = mamdaniPredSpot.isNotBlank() && actualSpot.trim().equals(mamdaniPredSpot.trim(), ignoreCase = true)
             val sigString = rawSignalsMap.entries.joinToString(";") { "${it.key}=${it.value}" }
 
             val csvLine = StringBuilder().apply {
@@ -91,7 +112,17 @@ data class ExperimentIterationResult(
                 append("${"%.2f".format(Locale.US, fuzzyPredY)},")
                 append("${"%.3f".format(Locale.US, fuzzyErrorMeters)},")
                 append("${if (fuzzyCorr) 1 else 0},")
-                append("\"$sigString\"")
+                append("\"$sigString\",")
+                append("\"$patternPredSpot\",")
+                append("${"%.2f".format(Locale.US, patternPredX)},")
+                append("${"%.2f".format(Locale.US, patternPredY)},")
+                append("${"%.3f".format(Locale.US, patternErrorMeters)},")
+                append("${if (patternCorr) 1 else 0},")
+                append("\"$mamdaniPredSpot\",")
+                append("${"%.2f".format(Locale.US, mamdaniPredX)},")
+                append("${"%.2f".format(Locale.US, mamdaniPredY)},")
+                append("${"%.3f".format(Locale.US, mamdaniErrorMeters)},")
+                append("${if (mamdaniCorr) 1 else 0}")
             }.toString()
 
             return ExperimentIterationResult(
@@ -115,14 +146,24 @@ data class ExperimentIterationResult(
                 fuzzyErrorMeters = fuzzyErrorMeters,
                 fuzzyCorrect = fuzzyCorr,
                 rawSignals = sigString,
-                rawCsvLine = csvLine
+                rawCsvLine = csvLine,
+                patternPredSpot = patternPredSpot,
+                patternPredX = patternPredX,
+                patternPredY = patternPredY,
+                patternErrorMeters = patternErrorMeters,
+                patternCorrect = patternCorr,
+                mamdaniPredSpot = mamdaniPredSpot,
+                mamdaniPredX = mamdaniPredX,
+                mamdaniPredY = mamdaniPredY,
+                mamdaniErrorMeters = mamdaniErrorMeters,
+                mamdaniCorrect = mamdaniCorr
             )
         }
     }
 }
 
 /**
- * Aggregated summary statistics for a batch experiment run.
+ * Aggregated summary statistics for a batch experiment run across all 4 strategies.
  */
 data class ExperimentSummaryStats(
     val separationMeters: Double,
@@ -134,6 +175,11 @@ data class ExperimentSummaryStats(
     val knnAvgErrorMeters: Double,
     val fuzzyCorrectCount: Int,
     val fuzzyAccuracyPct: Double,
-    val fuzzyAvgErrorMeters: Double
+    val fuzzyAvgErrorMeters: Double,
+    val patternCorrectCount: Int = 0,
+    val patternAccuracyPct: Double = 0.0,
+    val patternAvgErrorMeters: Double = 0.0,
+    val mamdaniCorrectCount: Int = 0,
+    val mamdaniAccuracyPct: Double = 0.0,
+    val mamdaniAvgErrorMeters: Double = 0.0
 )
-

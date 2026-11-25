@@ -2,4 +2,48 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Light Mode Semantic Palette (Calm Research / Material 3 Indigo-Teal) -->
+    <color name="surface_canvas">#F5F7FB</color>
+    <color name="surface_card">#FFFFFF</color>
+    <color name="surface_tonal">#E9EEF8</color>
+    <color name="surface_tonal_purple">#F1ECFA</color>
+    <color name="surface_input">#F8FAFD</color>
+    <color name="surface_console">#F0F4F9</color>
+
+    <color name="stroke_subtle">#D8E0EE</color>
+    <color name="stroke_input">#C5D0E3</color>
+    <color name="divider_subtle">#E2E8F0</color>
+
+    <color name="brand_primary">#2F5BEA</color>
+    <color name="brand_primary_dark">#1E3FA8</color>
+    <color name="brand_secondary">#0F8A7B</color>
+    <color name="brand_purple">#6D3BD6</color>
+    <color name="brand_on_solid">#FFFFFF</color>
+
+    <color name="text_primary">#111827</color>
+    <color name="text_secondary">#4B5563</color>
+    <color name="text_muted">#6B7280</color>
+    <color name="text_accent">#1E3A8A</color>
+    <color name="text_purple">#4C1D95</color>
+    <color name="console_text">#1E293B</color>
+
+    <color name="status_success">#15803D</color>
+    <color name="status_success_bg">#EAF7EE</color>
+    <color name="status_error">#C62828</color>
+    <color name="status_error_bg">#FDECEC</color>
+    <color name="badge_bg">#E0E7FF</color>
+    <color name="badge_text">#1E40AF</color>
+
+    <!-- Ergonomic Button Tokens (Guaranteed High Contrast) -->
+    <color name="btn_primary_bg">#2F5BEA</color>
+    <color name="btn_primary_text">#FFFFFF</color>
+    <color name="btn_secondary_bg">#0F766E</color>
+    <color name="btn_secondary_text">#FFFFFF</color>
+    <color name="btn_purple_bg">#6D28D9</color>
+    <color name="btn_purple_text">#FFFFFF</color>
+    <color name="btn_danger_bg">#DC2626</color>
+    <color name="btn_danger_text">#FFFFFF</color>
+    <color name="btn_tonal_bg">#E2E8F5</color>
+    <color name="btn_tonal_text">#1E293B</color>
 </resources>

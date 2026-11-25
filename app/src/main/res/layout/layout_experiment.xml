@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/layoutExperimentView"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -12,9 +13,10 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#E8EAF6"
-        android:padding="8dp"
-        android:layout_marginBottom="6dp">
+        android:background="@drawable/bg_card_tonal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:layout_marginBottom="8dp">
 
         <TextView
             android:id="@+id/tvExpHeaderStats"
@@ -24,198 +26,230 @@
             android:text="Automated Experiment Runner"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:textColor="#1A237E" />
+            android:textColor="@color/text_accent" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnExpExportCsv"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="📤 Export"
             android:textSize="11sp"
-            android:backgroundTint="#00796B"
-            android:textColor="#FFFFFF"
-            android:paddingLeft="8dp"
-            android:paddingRight="8dp" />
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="10dp"
+            app:cornerRadius="8dp"
+            app:backgroundTint="@color/btn_secondary_bg"
+            android:textColor="@color/btn_secondary_text" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnExpClearCsv"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="🗑️ Clear"
             android:textSize="11sp"
-            android:backgroundTint="#D32F2F"
-            android:textColor="#FFFFFF"
-            android:layout_marginStart="4dp"
-            android:paddingLeft="8dp"
-            android:paddingRight="8dp" />
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="10dp"
+            app:cornerRadius="8dp"
+            app:backgroundTint="@color/btn_danger_bg"
+            android:textColor="@color/btn_danger_text"
+            android:layout_marginStart="6dp" />
     </LinearLayout>
 
-    <!-- Configuration Box -->
-    <LinearLayout
+    <!-- Configuration Card -->
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="#EDE7F6"
-        android:padding="8dp"
-        android:layout_marginBottom="6dp">
+        android:layout_marginBottom="8dp"
+        app:cardBackgroundColor="@color/surface_card"
+        app:cardCornerRadius="14dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/stroke_subtle"
+        app:strokeWidth="1dp">
 
-        <!-- Row 1: Separation & Spot Selection -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:orientation="vertical"
+            android:padding="10dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <!-- Row 1: Separation & Spot Selection -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Sep:"
-                android:textStyle="bold"
-                android:textSize="12sp"
-                android:textColor="#311B92"
-                android:layout_marginEnd="4dp" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <Spinner
-                android:id="@+id/spinnerExpSeparation"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:background="#FFFFFF" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Sep:"
+                    android:textStyle="bold"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_accent"
+                    android:layout_marginEnd="6dp" />
 
-            <TextView
-                android:layout_width="wrap_content"
+                <Spinner
+                    android:id="@+id/spinnerExpSeparation"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_input_rounded" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Spot:"
+                    android:textStyle="bold"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_accent"
+                    android:layout_marginStart="10dp"
+                    android:layout_marginEnd="6dp" />
+
+                <Spinner
+                    android:id="@+id/spinnerExpSpot"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1.2"
+                    android:background="@drawable/bg_input_rounded" />
+            </LinearLayout>
+
+            <!-- Row 2: Coordinate Overrides & Sample Counts -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Spot:"
-                android:textStyle="bold"
-                android:textSize="12sp"
-                android:textColor="#311B92"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="4dp" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="8dp">
 
-            <Spinner
-                android:id="@+id/spinnerExpSpot"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1.2"
-                android:background="#FFFFFF" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="X:"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginEnd="4dp" />
+
+                <EditText
+                    android:id="@+id/editExpCoordX"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="0.0"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_primary"
+                    android:gravity="center"
+                    android:singleLine="true"
+                    android:background="@drawable/bg_input_rounded"
+                    android:inputType="numberDecimal|numberSigned" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Y:"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="4dp" />
+
+                <EditText
+                    android:id="@+id/editExpCoordY"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="0.0"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_primary"
+                    android:gravity="center"
+                    android:singleLine="true"
+                    android:background="@drawable/bg_input_rounded"
+                    android:inputType="numberDecimal|numberSigned" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="M:"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="4dp" />
+
+                <EditText
+                    android:id="@+id/editExpTrials"
+                    android:layout_width="48dp"
+                    android:layout_height="40dp"
+                    android:text="20"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_primary"
+                    android:gravity="center"
+                    android:singleLine="true"
+                    android:background="@drawable/bg_input_rounded"
+                    android:inputType="number" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="n:"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="4dp" />
+
+                <EditText
+                    android:id="@+id/editExpScans"
+                    android:layout_width="48dp"
+                    android:layout_height="40dp"
+                    android:text="10"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_primary"
+                    android:gravity="center"
+                    android:singleLine="true"
+                    android:background="@drawable/bg_input_rounded"
+                    android:inputType="number" />
+            </LinearLayout>
+
+            <!-- Start & Stop Control Buttons -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="10dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnExpStart"
+                    android:layout_width="0dp"
+                    android:layout_height="46dp"
+                    android:layout_weight="1"
+                    android:text="▶️ Start Experiment Loop"
+                    android:textStyle="bold"
+                    android:textSize="13sp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    app:cornerRadius="12dp"
+                    app:backgroundTint="@color/btn_primary_bg"
+                    android:textColor="@color/btn_primary_text" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnExpStop"
+                    android:layout_width="wrap_content"
+                    android:layout_height="46dp"
+                    android:text="⏹️ Abort"
+                    android:textStyle="bold"
+                    android:textSize="12sp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    app:cornerRadius="12dp"
+                    app:backgroundTint="@color/btn_danger_bg"
+                    android:textColor="@color/btn_danger_text"
+                    android:layout_marginStart="6dp"
+                    android:visibility="gone" />
+            </LinearLayout>
         </LinearLayout>
-
-        <!-- Row 2: Coordinate overrides & Sample counts -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="6dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="X(m):"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:layout_marginEnd="2dp" />
-
-            <EditText
-                android:id="@+id/editExpCoordX"
-                android:layout_width="0dp"
-                android:layout_height="36dp"
-                android:layout_weight="1"
-                android:text="0.0"
-                android:textSize="12sp"
-                android:gravity="center"
-                android:background="#FFFFFF"
-                android:inputType="numberDecimal|numberSigned" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Y(m):"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="2dp" />
-
-            <EditText
-                android:id="@+id/editExpCoordY"
-                android:layout_width="0dp"
-                android:layout_height="36dp"
-                android:layout_weight="1"
-                android:text="0.0"
-                android:textSize="12sp"
-                android:gravity="center"
-                android:background="#FFFFFF"
-                android:inputType="numberDecimal|numberSigned" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Trials(M):"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="2dp" />
-
-            <EditText
-                android:id="@+id/editExpTrials"
-                android:layout_width="44dp"
-                android:layout_height="36dp"
-                android:text="20"
-                android:textSize="12sp"
-                android:gravity="center"
-                android:background="#FFFFFF"
-                android:inputType="number" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Scans(n):"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="2dp" />
-
-            <EditText
-                android:id="@+id/editExpScans"
-                android:layout_width="44dp"
-                android:layout_height="36dp"
-                android:text="10"
-                android:textSize="12sp"
-                android:gravity="center"
-                android:background="#FFFFFF"
-                android:inputType="number" />
-        </LinearLayout>
-
-        <!-- Start & Stop Control Buttons -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="8dp">
-
-            <Button
-                android:id="@+id/btnExpStart"
-                android:layout_width="0dp"
-                android:layout_height="42dp"
-                android:layout_weight="1"
-                android:text="▶️ Start Experiment Loop"
-                android:textStyle="bold"
-                android:textSize="13sp"
-                android:backgroundTint="#3F51B5"
-                android:textColor="#FFFFFF" />
-
-            <Button
-                android:id="@+id/btnExpStop"
-                android:layout_width="wrap_content"
-                android:layout_height="42dp"
-                android:text="⏹️ Abort"
-                android:backgroundTint="#D32F2F"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:layout_marginStart="6dp"
-                android:visibility="gone" />
-        </LinearLayout>
-    </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
     <!-- Progress Card (Visible during scan execution) -->
     <LinearLayout
@@ -223,9 +257,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#E8EAF6"
-        android:padding="8dp"
-        android:layout_marginBottom="6dp"
+        android:background="@drawable/bg_card_tonal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:layout_marginBottom="8dp"
         android:visibility="gone">
 
         <LinearLayout
@@ -241,7 +276,7 @@
                 android:text="Trial 1 / 20"
                 android:textStyle="bold"
                 android:textSize="12sp"
-                android:textColor="#1A237E" />
+                android:textColor="@color/text_accent" />
 
             <TextView
                 android:id="@+id/tvExpProgressScan"
@@ -249,7 +284,8 @@
                 android:layout_height="wrap_content"
                 android:text="Scan 1 / 10"
                 android:textSize="12sp"
-                android:textColor="#0D47A1" />
+                android:textStyle="bold"
+                android:textColor="@color/brand_primary" />
         </LinearLayout>
 
         <ProgressBar
@@ -257,10 +293,11 @@
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
             android:layout_height="8dp"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="5dp"
             android:max="100"
             android:progress="0"
-            android:progressTint="#1976D2" />
+            android:progressTint="@color/brand_primary"
+            android:progressBackgroundTint="@color/stroke_subtle" />
     </LinearLayout>
 
     <!-- Live Performance Stats Card -->
@@ -269,9 +306,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#F1F8E9"
-        android:padding="8dp"
-        android:layout_marginBottom="6dp">
+        android:background="@drawable/bg_card_success"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:layout_marginBottom="8dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -279,7 +317,32 @@
             android:text="⚖️ Session Performance Summary"
             android:textStyle="bold"
             android:textSize="12sp"
-            android:textColor="#33691E" />
+            android:textColor="@color/status_success" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:id="@+id/tvExpKnnStats"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="k-NN: --% (Mean Err: --m)"
+                android:textSize="11.5sp"
+                android:textColor="@color/text_primary" />
+
+            <TextView
+                android:id="@+id/tvExpFuzzyStats"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Matrix: --% (Mean Err: --m)"
+                android:textSize="11.5sp"
+                android:textColor="@color/text_primary" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -288,22 +351,22 @@
             android:layout_marginTop="2dp">
 
             <TextView
-                android:id="@+id/tvExpKnnStats"
+                android:id="@+id/tvExpPatternStats"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="k-NN: --% (Mean Err: --m)"
-                android:textSize="11sp"
-                android:textColor="#1B5E20" />
+                android:text="Pattern: --% (Mean Err: --m)"
+                android:textSize="11.5sp"
+                android:textColor="@color/text_primary" />
 
             <TextView
-                android:id="@+id/tvExpFuzzyStats"
+                android:id="@+id/tvExpMamdaniStats"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Fuzzy: --% (Mean Err: --m)"
-                android:textSize="11sp"
-                android:textColor="#1B5E20" />
+                android:text="Mamdani: --% (Mean Err: --m)"
+                android:textSize="11.5sp"
+                android:textColor="@color/text_primary" />
         </LinearLayout>
     </LinearLayout>
 
@@ -315,8 +378,8 @@
         android:text="No experiment results recorded yet.\nSelect your test spot, separation, and tap 'Start Experiment Loop'."
         android:gravity="center"
         android:textSize="13sp"
-        android:textColor="#757575"
-        android:padding="20dp"
+        android:textColor="@color/text_muted"
+        android:padding="24dp"
         android:visibility="gone" />
 
     <!-- Results History RecyclerView -->
@@ -324,7 +387,8 @@
         android:id="@+id/rvExpHistory"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp" />
 
 </LinearLayout>
-

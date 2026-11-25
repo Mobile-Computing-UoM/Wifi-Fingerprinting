@@ -23,6 +23,7 @@ class FeedbackHistoryAdapter(
         val tvKnnResult: TextView = view.findViewById(R.id.tvHistoryKnnResult)
         val tvFuzzyResult: TextView = view.findViewById(R.id.tvHistoryFuzzyResult)
         val tvPatternResult: TextView = view.findViewById(R.id.tvHistoryPatternResult)
+        val tvMamdaniResult: TextView = view.findViewById(R.id.tvHistoryMamdaniResult)
         val tvContext: TextView = view.findViewById(R.id.tvHistoryContext)
         val tvSignals: TextView = view.findViewById(R.id.tvHistorySignals)
     }
@@ -57,6 +58,15 @@ class FeedbackHistoryAdapter(
             holder.tvPatternResult.text = "• Strategy 3 (Pattern): ${item.patternPredicted} [$patStatus]$patMarginStr"
         } else {
             holder.tvPatternResult.visibility = View.GONE
+        }
+
+        if (item.mamdaniPredicted.isNotBlank()) {
+            val mamStatus = if (item.mamdaniCorrect) "✅ CORRECT" else "❌ WRONG"
+            val mamMarginStr = if (item.mamdaniMargin > 0.0) " (Margin: +${"%.4f".format(item.mamdaniMargin)})" else ""
+            holder.tvMamdaniResult.visibility = View.VISIBLE
+            holder.tvMamdaniResult.text = "• Strategy 4 (Mamdani FIS): ${item.mamdaniPredicted} [$mamStatus]$mamMarginStr"
+        } else {
+            holder.tvMamdaniResult.visibility = View.GONE
         }
 
         val calibInfo = item.calibOffsetDb?.let { " | Calib: %+.1f dB".format(it) } ?: ""

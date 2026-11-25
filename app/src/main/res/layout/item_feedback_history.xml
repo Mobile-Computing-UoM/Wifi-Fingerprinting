@@ -1,97 +1,115 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="@android:drawable/dialog_holo_light_frame"
-    android:padding="12dp"
-    android:layout_marginBottom="8dp">
+    android:layout_marginBottom="8dp"
+    app:cardBackgroundColor="@color/surface_card"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="0dp"
+    app:strokeColor="@color/stroke_subtle"
+    app:strokeWidth="1dp">
 
-    <!-- Header: Ground Truth Spot, Time, Delete Button -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="6dp">
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <!-- Header: Ground Truth Spot, Time, Delete Button -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+
+            <TextView
+                android:id="@+id/tvHistoryActualSpot"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="📍 Actual: Hall"
+                android:textStyle="bold"
+                android:textSize="14sp"
+                android:textColor="@color/text_accent" />
+
+            <TextView
+                android:id="@+id/tvHistoryTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="11:53 AM"
+                android:textSize="11sp"
+                android:textColor="@color/text_muted"
+                android:layout_marginEnd="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDeleteHistoryRow"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:text="🗑️"
+                android:textSize="13sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:padding="0dp"
+                app:cornerRadius="8dp"
+                app:backgroundTint="@color/status_error_bg"
+                android:textColor="@color/status_error" />
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/tvHistoryActualSpot"
-            android:layout_width="0dp"
+            android:id="@+id/tvHistoryKnnResult"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="📍 Actual: Hall"
-            android:textStyle="bold"
-            android:textSize="14sp"
-            android:textColor="#1A237E" />
+            android:text="• k-NN: Hall (✅ Correct) [Gap: 2.1 dBm]"
+            android:textSize="12sp"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="2dp" />
 
         <TextView
-            android:id="@+id/tvHistoryTime"
-            android:layout_width="wrap_content"
+            android:id="@+id/tvHistoryFuzzyResult"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="11:53 AM"
+            android:text="• Fuzzy: Hall (✅ Correct) [Margin: +0.40]"
+            android:textSize="12sp"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="2dp" />
+
+        <TextView
+            android:id="@+id/tvHistoryPatternResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Pattern: Hall (✅ Correct) [Sep: 3.50 dB]"
+            android:textSize="12sp"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="2dp" />
+
+        <TextView
+            android:id="@+id/tvHistoryMamdaniResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Mamdani FIS: Hall (✅ Correct) [Margin: +0.25]"
+            android:textSize="12sp"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvHistoryContext"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📱 Source: LOCAL"
             android:textSize="11sp"
-            android:textColor="#616161"
-            android:layout_marginEnd="8dp" />
+            android:textStyle="bold"
+            android:textColor="@color/text_purple"
+            android:layout_marginBottom="4dp" />
 
-        <Button
-            android:id="@+id/btnDeleteHistoryRow"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
-            android:text="🗑️"
-            android:textSize="13sp"
-            android:padding="0dp"
-            android:backgroundTint="#D32F2F"
-            android:textColor="#FFFFFF" />
+        <TextView
+            android:id="@+id/tvHistorySignals"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📡 Signals: SLT:-57 | Dialog:-48 | UFI:-65"
+            android:fontFamily="monospace"
+            android:textSize="10.5sp"
+            android:textColor="@color/text_muted" />
     </LinearLayout>
-
-    <!-- k-NN Result Row -->
-    <TextView
-        android:id="@+id/tvHistoryKnnResult"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="• k-NN: Hall (✅ Correct) [Gap: 2.1 dBm]"
-        android:textSize="12sp"
-        android:textColor="#212121"
-        android:layout_marginBottom="2dp" />
-
-    <!-- Fuzzy Matrix Result Row -->
-    <TextView
-        android:id="@+id/tvHistoryFuzzyResult"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="• Fuzzy: Hall (✅ Correct) [Margin: +0.40]"
-        android:textSize="12sp"
-        android:textColor="#212121"
-        android:layout_marginBottom="2dp" />
-
-    <!-- Strategy 3: Pattern Result Row -->
-    <TextView
-        android:id="@+id/tvHistoryPatternResult"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="• Pattern: Hall (✅ Correct) [Sep: 3.50 dB]"
-        android:textSize="12sp"
-        android:textColor="#212121"
-        android:layout_marginBottom="2dp" />
-
-    <!-- Context Info (Map source, Model, Calibration) -->
-    <TextView
-        android:id="@+id/tvHistoryContext"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="📱 Source: LOCAL"
-        android:textSize="11sp"
-        android:textColor="#5E35B1"
-        android:layout_marginBottom="4dp" />
-
-    <!-- Query Signals Vector -->
-    <TextView
-        android:id="@+id/tvHistorySignals"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="📡 Signals: SLT:-57 | Dialog:-48 | UFI:-65"
-        android:fontFamily="monospace"
-        android:textSize="10sp"
-        android:textColor="#616161" />
-</LinearLayout>
+</com.google.android.material.card.MaterialCardView>

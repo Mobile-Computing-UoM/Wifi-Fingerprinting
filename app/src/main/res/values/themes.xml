@@ -1,8 +1,17 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
     <style name="Base.Theme.WifiFingerprint" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorOnPrimary">@color/btn_primary_text</item>
+        <item name="colorSecondary">@color/brand_secondary</item>
+        <item name="colorTertiary">@color/brand_purple</item>
+        <item name="android:windowBackground">@color/surface_canvas</item>
+        <item name="colorSurface">@color/surface_card</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorSurfaceVariant">@color/surface_tonal</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="colorOutline">@color/stroke_subtle</item>
+        <item name="android:statusBarColor">@color/surface_canvas</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 
     <style name="Theme.WifiFingerprint" parent="Base.Theme.WifiFingerprint" />

@@ -1,10 +1,10 @@
 package com.example.wififingerprint.experiment
 
-import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.example.wififingerprint.R
 import java.util.Locale
@@ -20,6 +20,9 @@ class ExperimentAdapter(
         val tvSeparationBadge: TextView = view.findViewById(R.id.tvExpSeparationBadge)
         val tvKnnResult: TextView = view.findViewById(R.id.tvExpKnnResult)
         val tvFuzzyResult: TextView = view.findViewById(R.id.tvExpFuzzyResult)
+        val layoutRow2: View = view.findViewById(R.id.layoutExpRow2)
+        val tvPatternResult: TextView = view.findViewById(R.id.tvExpPatternResult)
+        val tvMamdaniResult: TextView = view.findViewById(R.id.tvExpMamdaniResult)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -34,15 +37,41 @@ class ExperimentAdapter(
         holder.tvActualSpot.text = "Spot: ${item.actualSpot} (${"%.1f".format(Locale.US, item.actualX)}m, ${"%.1f".format(Locale.US, item.actualY)}m)"
         holder.tvSeparationBadge.text = "${"%.1f".format(Locale.US, item.separationMeters)}m"
 
+        val ctx = holder.itemView.context
+        val colorSuccess = ContextCompat.getColor(ctx, R.color.status_success)
+        val colorError = ContextCompat.getColor(ctx, R.color.status_error)
+
         val knnIcon = if (item.knnCorrect) "✅" else "❌"
         val knnErrStr = "${"%.2f".format(Locale.US, item.knnErrorMeters)}m"
         holder.tvKnnResult.text = "k-NN: ${item.knnPredSpot} $knnIcon ($knnErrStr)"
-        holder.tvKnnResult.setTextColor(if (item.knnCorrect) Color.parseColor("#2E7D32") else Color.parseColor("#C62828"))
+        holder.tvKnnResult.setTextColor(if (item.knnCorrect) colorSuccess else colorError)
 
         val fuzzyIcon = if (item.fuzzyCorrect) "✅" else "❌"
         val fuzzyErrStr = "${"%.2f".format(Locale.US, item.fuzzyErrorMeters)}m"
-        holder.tvFuzzyResult.text = "Fuzzy: ${item.fuzzyPredSpot} $fuzzyIcon ($fuzzyErrStr)"
-        holder.tvFuzzyResult.setTextColor(if (item.fuzzyCorrect) Color.parseColor("#2E7D32") else Color.parseColor("#C62828"))
+        holder.tvFuzzyResult.text = "Matrix: ${item.fuzzyPredSpot} $fuzzyIcon ($fuzzyErrStr)"
+        holder.tvFuzzyResult.setTextColor(if (item.fuzzyCorrect) colorSuccess else colorError)
+
+        val hasRow2 = item.patternPredSpot.isNotBlank() || item.mamdaniPredSpot.isNotBlank()
+        holder.layoutRow2.visibility = if (hasRow2) View.VISIBLE else View.GONE
+        if (hasRow2) {
+            if (item.patternPredSpot.isNotBlank()) {
+                val patIcon = if (item.patternCorrect) "✅" else "❌"
+                val patErrStr = "${"%.2f".format(Locale.US, item.patternErrorMeters)}m"
+                holder.tvPatternResult.text = "Pattern: ${item.patternPredSpot} $patIcon ($patErrStr)"
+                holder.tvPatternResult.setTextColor(if (item.patternCorrect) colorSuccess else colorError)
+            } else {
+                holder.tvPatternResult.text = "Pattern: --"
+            }
+
+            if (item.mamdaniPredSpot.isNotBlank()) {
+                val mamIcon = if (item.mamdaniCorrect) "✅" else "❌"
+                val mamErrStr = "${"%.2f".format(Locale.US, item.mamdaniErrorMeters)}m"
+                holder.tvMamdaniResult.text = "Mamdani: ${item.mamdaniPredSpot} $mamIcon ($mamErrStr)"
+                holder.tvMamdaniResult.setTextColor(if (item.mamdaniCorrect) colorSuccess else colorError)
+            } else {
+                holder.tvMamdaniResult.text = "Mamdani: --"
+            }
+        }
 
         holder.itemView.setOnClickListener {
             onItemClick?.invoke(item, position)

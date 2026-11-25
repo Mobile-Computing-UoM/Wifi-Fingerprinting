@@ -11,7 +11,7 @@ class ExperimentCsvManager(private val context: Context) {
 
     companion object {
         const val EXPERIMENT_CSV_FILE_NAME = "experiment_results.csv"
-        const val CSV_HEADER = "timestamp_ms,iso_time,separation_m,trial_idx,total_trials,locate_n,actual_spot,actual_x,actual_y,knn_pred_spot,knn_pred_x,knn_pred_y,knn_error_m,knn_correct,fuzzy_pred_spot,fuzzy_pred_x,fuzzy_pred_y,fuzzy_error_m,fuzzy_correct,raw_signals"
+        const val CSV_HEADER = "timestamp_ms,iso_time,separation_m,trial_idx,total_trials,locate_n,actual_spot,actual_x,actual_y,knn_pred_spot,knn_pred_x,knn_pred_y,knn_error_m,knn_correct,fuzzy_pred_spot,fuzzy_pred_x,fuzzy_pred_y,fuzzy_error_m,fuzzy_correct,raw_signals,pattern_pred_spot,pattern_pred_x,pattern_pred_y,pattern_error_m,pattern_correct,mamdani_pred_spot,mamdani_pred_x,mamdani_pred_y,mamdani_error_m,mamdani_correct"
 
         /**
          * Parses a CSV line safely respecting quotation marks around fields.
@@ -61,6 +61,19 @@ class ExperimentCsvManager(private val context: Context) {
             val fuzzyCorr = parts[18] == "1" || parts[18].equals("true", ignoreCase = true)
             val signals = if (parts.size > 19) parts[19] else ""
 
+            // Extended Pattern & Mamdani FIS columns (indices 20..29, backward-compatible)
+            val patSpot = if (parts.size > 20) parts[20] else ""
+            val patX = if (parts.size > 21) parts[21].toDoubleOrNull() ?: 0.0 else 0.0
+            val patY = if (parts.size > 22) parts[22].toDoubleOrNull() ?: 0.0 else 0.0
+            val patErr = if (parts.size > 23) parts[23].toDoubleOrNull() ?: 0.0 else 0.0
+            val patCorr = if (parts.size > 24) (parts[24] == "1" || parts[24].equals("true", ignoreCase = true)) else false
+
+            val mamSpot = if (parts.size > 25) parts[25] else ""
+            val mamX = if (parts.size > 26) parts[26].toDoubleOrNull() ?: 0.0 else 0.0
+            val mamY = if (parts.size > 27) parts[27].toDoubleOrNull() ?: 0.0 else 0.0
+            val mamErr = if (parts.size > 28) parts[28].toDoubleOrNull() ?: 0.0 else 0.0
+            val mamCorr = if (parts.size > 29) (parts[29] == "1" || parts[29].equals("true", ignoreCase = true)) else false
+
             return ExperimentIterationResult(
                 timestampMs = ts,
                 isoTime = iso,
@@ -82,7 +95,17 @@ class ExperimentCsvManager(private val context: Context) {
                 fuzzyErrorMeters = fuzzyErr,
                 fuzzyCorrect = fuzzyCorr,
                 rawSignals = signals,
-                rawCsvLine = trimmed
+                rawCsvLine = trimmed,
+                patternPredSpot = patSpot,
+                patternPredX = patX,
+                patternPredY = patY,
+                patternErrorMeters = patErr,
+                patternCorrect = patCorr,
+                mamdaniPredSpot = mamSpot,
+                mamdaniPredX = mamX,
+                mamdaniPredY = mamY,
+                mamdaniErrorMeters = mamErr,
+                mamdaniCorrect = mamCorr
             )
         }
     }

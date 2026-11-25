@@ -5,6 +5,8 @@ import android.os.Looper
 import com.example.wififingerprint.strategy.FuzzyMatrixStrategy
 import com.example.wififingerprint.strategy.KnnStrategy
 import com.example.wififingerprint.strategy.LiveQueryScan
+import com.example.wififingerprint.strategy.MamdaniFuzzyStrategy
+import com.example.wififingerprint.strategy.PatternStrategy
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -22,7 +24,9 @@ class ExperimentRunner(
     private val fuzzyMatrixStrategy: FuzzyMatrixStrategy,
     private val csvManager: ExperimentCsvManager,
     private val listener: ExperimentListener,
-    private val queryPreprocessor: ((LiveQueryScan) -> LiveQueryScan)? = null
+    private val queryPreprocessor: ((LiveQueryScan) -> LiveQueryScan)? = null,
+    private val patternStrategy: PatternStrategy? = null,
+    private val mamdaniFuzzyStrategy: MamdaniFuzzyStrategy? = null
 ) {
     private val handler = Handler(Looper.getMainLooper())
     private var config: ExperimentConfig = ExperimentConfig()
@@ -123,12 +127,16 @@ class ExperimentRunner(
         val rawQuery = LiveQueryScan(averagedFingerprint, trialBssidToSsid)
         val query = queryPreprocessor?.invoke(rawQuery) ?: rawQuery
 
-        // Evaluate both strategies on the query vector (with antenna offset if calibrated)
+        // Evaluate all 4 strategies (Pattern uses rawQuery; k-NN, Fuzzy Matrix & Mamdani FIS use calibrated query)
         val knnRes = knnStrategy.infer(query)
         val fuzzyRes = fuzzyMatrixStrategy.infer(query)
+        val patternRes = patternStrategy?.infer(rawQuery)
+        val mamdaniRes = mamdaniFuzzyStrategy?.infer(query)
 
         val knnSpot = knnRes.predictedSpot ?: "Unknown"
         val fuzzySpot = fuzzyRes.predictedSpot ?: "Unknown"
+        val patternSpot = patternRes?.predictedSpot ?: ""
+        val mamdaniSpot = mamdaniRes?.predictedSpot ?: ""
 
         // Compute 2D coordinate predictions and metric Euclidean errors
         val knnCoords = knnStrategy.estimateCoordinatesMetres(query)
@@ -139,6 +147,23 @@ class ExperimentRunner(
             ?: KnnStrategy.getCoordinatesForSpot(fuzzySpot)
             ?: Pair(0.0, 0.0)
 
+        val patternCoords = if (patternSpot.isNotBlank()) {
+            fuzzyMatrixStrategy.getCoordinatesForSpot(patternSpot)
+                ?: KnnStrategy.getCoordinatesForSpot(patternSpot)
+                ?: Pair(0.0, 0.0)
+        } else {
+            Pair(0.0, 0.0)
+        }
+
+        val mamdaniCoords = if (mamdaniSpot.isNotBlank()) {
+            mamdaniFuzzyStrategy?.lastEstimatedCoords
+                ?: mamdaniFuzzyStrategy?.getCoordinatesForSpot(mamdaniSpot)
+                ?: KnnStrategy.getCoordinatesForSpot(mamdaniSpot)
+                ?: Pair(0.0, 0.0)
+        } else {
+            Pair(0.0, 0.0)
+        }
+
         val dxKnn = config.actualX - knnCoords.first
         val dyKnn = config.actualY - knnCoords.second
         val knnError = sqrt(dxKnn * dxKnn + dyKnn * dyKnn)
@@ -146,6 +171,14 @@ class ExperimentRunner(
         val dxFuzzy = config.actualX - fuzzyCoords.first
         val dyFuzzy = config.actualY - fuzzyCoords.second
         val fuzzyError = sqrt(dxFuzzy * dxFuzzy + dyFuzzy * dyFuzzy)
+
+        val dxPattern = config.actualX - patternCoords.first
+        val dyPattern = config.actualY - patternCoords.second
+        val patternError = if (patternSpot.isNotBlank()) sqrt(dxPattern * dxPattern + dyPattern * dyPattern) else 0.0
+
+        val dxMamdani = config.actualX - mamdaniCoords.first
+        val dyMamdani = config.actualY - mamdaniCoords.second
+        val mamdaniError = if (mamdaniSpot.isNotBlank()) sqrt(dxMamdani * dxMamdani + dyMamdani * dyMamdani) else 0.0
 
         val iterResult = ExperimentIterationResult.create(
             separationMeters = config.separationMeters,
@@ -163,7 +196,15 @@ class ExperimentRunner(
             fuzzyPredX = fuzzyCoords.first,
             fuzzyPredY = fuzzyCoords.second,
             fuzzyErrorMeters = fuzzyError,
-            rawSignalsMap = averagedFingerprint
+            rawSignalsMap = averagedFingerprint,
+            patternPredSpot = patternSpot,
+            patternPredX = patternCoords.first,
+            patternPredY = patternCoords.second,
+            patternErrorMeters = patternError,
+            mamdaniPredSpot = mamdaniSpot,
+            mamdaniPredX = mamdaniCoords.first,
+            mamdaniPredY = mamdaniCoords.second,
+            mamdaniErrorMeters = mamdaniError
         )
 
         csvManager.appendResult(iterResult)
@@ -174,10 +215,15 @@ class ExperimentRunner(
 
         val knnMatchIcon = if (iterResult.knnCorrect) "✅" else "❌"
         val fuzzyMatchIcon = if (iterResult.fuzzyCorrect) "✅" else "❌"
+        val patMatchIcon = if (iterResult.patternCorrect) "✅" else "❌"
+        val mamMatchIcon = if (iterResult.mamdaniCorrect) "✅" else "❌"
 
         listener.onLog("Trial ${currentTrialIndex}/${config.totalTrials}: " +
                 "k-NN=$knnSpot $knnMatchIcon (${"%.2f".format(knnError)}m) | " +
-                "Fuzzy=$fuzzySpot $fuzzyMatchIcon (${"%.2f".format(fuzzyError)}m)\n")
+                "Matrix=$fuzzySpot $fuzzyMatchIcon (${"%.2f".format(fuzzyError)}m)" +
+                (if (patternSpot.isNotBlank()) " | Pattern=$patternSpot $patMatchIcon (${"%.2f".format(patternError)}m)" else "") +
+                (if (mamdaniSpot.isNotBlank()) " | Mamdani=$mamdaniSpot $mamMatchIcon (${"%.2f".format(mamdaniError)}m)" else "") +
+                "\n")
 
         if (currentTrialIndex < config.totalTrials) {
             currentTrialIndex++
@@ -192,8 +238,14 @@ class ExperimentRunner(
             isRunning = false
             listener.onLog("\n========================================\n")
             listener.onLog("🎉 Experiment Finished! (${sessionResults.size} trials)\n")
-            listener.onLog("• k-NN Accuracy:   ${"%.1f".format(stats.knnAccuracyPct)}% (Mean Err: ${"%.2f".format(stats.knnAvgErrorMeters)}m)\n")
-            listener.onLog("• Fuzzy Accuracy:  ${"%.1f".format(stats.fuzzyAccuracyPct)}% (Mean Err: ${"%.2f".format(stats.fuzzyAvgErrorMeters)}m)\n")
+            listener.onLog("• k-NN Accuracy:    ${"%.1f".format(stats.knnAccuracyPct)}% (Mean Err: ${"%.2f".format(stats.knnAvgErrorMeters)}m)\n")
+            listener.onLog("• Matrix Accuracy:  ${"%.1f".format(stats.fuzzyAccuracyPct)}% (Mean Err: ${"%.2f".format(stats.fuzzyAvgErrorMeters)}m)\n")
+            if (patternStrategy != null) {
+                listener.onLog("• Pattern Accuracy: ${"%.1f".format(stats.patternAccuracyPct)}% (Mean Err: ${"%.2f".format(stats.patternAvgErrorMeters)}m)\n")
+            }
+            if (mamdaniFuzzyStrategy != null) {
+                listener.onLog("• Mamdani Accuracy: ${"%.1f".format(stats.mamdaniAccuracyPct)}% (Mean Err: ${"%.2f".format(stats.mamdaniAvgErrorMeters)}m)\n")
+            }
             listener.onLog("💾 Results appended to ${ExperimentCsvManager.EXPERIMENT_CSV_FILE_NAME}\n")
             listener.onLog("========================================\n\n")
             listener.onExperimentFinished(stats)
@@ -213,14 +265,25 @@ class ExperimentRunner(
                 knnAvgErrorMeters = 0.0,
                 fuzzyCorrectCount = 0,
                 fuzzyAccuracyPct = 0.0,
-                fuzzyAvgErrorMeters = 0.0
+                fuzzyAvgErrorMeters = 0.0,
+                patternCorrectCount = 0,
+                patternAccuracyPct = 0.0,
+                patternAvgErrorMeters = 0.0,
+                mamdaniCorrectCount = 0,
+                mamdaniAccuracyPct = 0.0,
+                mamdaniAvgErrorMeters = 0.0
             )
         }
 
         val knnCorrect = sessionResults.count { it.knnCorrect }
         val fuzzyCorrect = sessionResults.count { it.fuzzyCorrect }
+        val patCorrect = sessionResults.count { it.patternCorrect }
+        val mamCorrect = sessionResults.count { it.mamdaniCorrect }
+
         val knnAvgErr = sessionResults.map { it.knnErrorMeters }.average()
         val fuzzyAvgErr = sessionResults.map { it.fuzzyErrorMeters }.average()
+        val patAvgErr = sessionResults.map { it.patternErrorMeters }.average()
+        val mamAvgErr = sessionResults.map { it.mamdaniErrorMeters }.average()
 
         return ExperimentSummaryStats(
             separationMeters = config.separationMeters,
@@ -232,7 +295,13 @@ class ExperimentRunner(
             knnAvgErrorMeters = knnAvgErr,
             fuzzyCorrectCount = fuzzyCorrect,
             fuzzyAccuracyPct = (fuzzyCorrect.toDouble() / total) * 100.0,
-            fuzzyAvgErrorMeters = fuzzyAvgErr
+            fuzzyAvgErrorMeters = fuzzyAvgErr,
+            patternCorrectCount = patCorrect,
+            patternAccuracyPct = (patCorrect.toDouble() / total) * 100.0,
+            patternAvgErrorMeters = patAvgErr,
+            mamdaniCorrectCount = mamCorrect,
+            mamdaniAccuracyPct = (mamCorrect.toDouble() / total) * 100.0,
+            mamdaniAvgErrorMeters = mamAvgErr
         )
     }
 }

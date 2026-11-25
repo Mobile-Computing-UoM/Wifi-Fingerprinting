@@ -50,6 +50,8 @@ class ExperimentTabController(
 
     private val tvExpKnnStats: TextView = rootView.findViewById(R.id.tvExpKnnStats)
     private val tvExpFuzzyStats: TextView = rootView.findViewById(R.id.tvExpFuzzyStats)
+    private val tvExpPatternStats: TextView = rootView.findViewById(R.id.tvExpPatternStats)
+    private val tvExpMamdaniStats: TextView = rootView.findViewById(R.id.tvExpMamdaniStats)
 
     private val tvExpEmptyHistory: TextView = rootView.findViewById(R.id.tvExpEmptyHistory)
     private val rvExpHistory: RecyclerView = rootView.findViewById(R.id.rvExpHistory)
@@ -185,8 +187,10 @@ class ExperimentTabController(
                         "Trial: #${item.trialIndex}/${item.totalTrials}\n" +
                         "Spot: ${item.actualSpot} (${item.actualX}m, ${item.actualY}m)\n" +
                         "Separation: ${item.separationMeters}m\n\n" +
-                        "k-NN: ${item.knnPredSpot} (${if (item.knnCorrect) "Correct" else "Wrong"}, Err: ${"%.2f".format(item.knnErrorMeters)}m)\n" +
-                        "Fuzzy: ${item.fuzzyPredSpot} (${if (item.fuzzyCorrect) "Correct" else "Wrong"}, Err: ${"%.2f".format(item.fuzzyErrorMeters)}m)"
+                        "• k-NN: ${item.knnPredSpot} (${if (item.knnCorrect) "Correct" else "Wrong"}, Err: ${"%.2f".format(item.knnErrorMeters)}m)\n" +
+                        "• Matrix: ${item.fuzzyPredSpot} (${if (item.fuzzyCorrect) "Correct" else "Wrong"}, Err: ${"%.2f".format(item.fuzzyErrorMeters)}m)" +
+                        (if (item.patternPredSpot.isNotBlank()) "\n• Pattern: ${item.patternPredSpot} (${if (item.patternCorrect) "Correct" else "Wrong"}, Err: ${"%.2f".format(item.patternErrorMeters)}m)" else "") +
+                        (if (item.mamdaniPredSpot.isNotBlank()) "\n• Mamdani FIS: ${item.mamdaniPredSpot} (${if (item.mamdaniCorrect) "Correct" else "Wrong"}, COG Err: ${"%.2f".format(item.mamdaniErrorMeters)}m)" else "")
                     )
                     .setPositiveButton("OK", null)
                     .setNegativeButton("Delete Row") { _, _ ->
@@ -208,8 +212,10 @@ class ExperimentTabController(
             tvExpEmptyHistory.visibility = View.VISIBLE
             rvExpHistory.visibility = View.GONE
             tvExpHeaderStats.text = "Experiment (0 records)"
-            tvExpKnnStats.text = "k-NN: --% (Mean Err: --m)"
-            tvExpFuzzyStats.text = "Fuzzy: --% (Mean Err: --m)"
+            tvExpKnnStats.text = "k-NN: --% (Err: --m)"
+            tvExpFuzzyStats.text = "Matrix: --% (Err: --m)"
+            tvExpPatternStats.text = "Pattern: --% (Err: --m)"
+            tvExpMamdaniStats.text = "Mamdani: --% (Err: --m)"
         } else {
             tvExpEmptyHistory.visibility = View.GONE
             rvExpHistory.visibility = View.VISIBLE
@@ -220,9 +226,28 @@ class ExperimentTabController(
             val knnAvgErr = records.map { it.knnErrorMeters }.average()
             val fuzzyAvgErr = records.map { it.fuzzyErrorMeters }.average()
 
+            val patRecords = records.filter { it.patternPredSpot.isNotBlank() }
+            val mamRecords = records.filter { it.mamdaniPredSpot.isNotBlank() }
+
             tvExpHeaderStats.text = "Total Records: ${records.size} trials"
-            tvExpKnnStats.text = "k-NN: ${"%.1f".format(knnAcc)}% (Mean Err: ${"%.2f".format(knnAvgErr)}m)"
-            tvExpFuzzyStats.text = "Fuzzy: ${"%.1f".format(fuzzyAcc)}% (Mean Err: ${"%.2f".format(fuzzyAvgErr)}m)"
+            tvExpKnnStats.text = "k-NN: ${"%.1f".format(knnAcc)}% (${"%.2f".format(knnAvgErr)}m)"
+            tvExpFuzzyStats.text = "Matrix: ${"%.1f".format(fuzzyAcc)}% (${"%.2f".format(fuzzyAvgErr)}m)"
+
+            if (patRecords.isNotEmpty()) {
+                val patAcc = (patRecords.count { it.patternCorrect }.toDouble() / patRecords.size) * 100.0
+                val patErr = patRecords.map { it.patternErrorMeters }.average()
+                tvExpPatternStats.text = "Pattern: ${"%.1f".format(patAcc)}% (${"%.2f".format(patErr)}m)"
+            } else {
+                tvExpPatternStats.text = "Pattern: --% (Err: --m)"
+            }
+
+            if (mamRecords.isNotEmpty()) {
+                val mamAcc = (mamRecords.count { it.mamdaniCorrect }.toDouble() / mamRecords.size) * 100.0
+                val mamErr = mamRecords.map { it.mamdaniErrorMeters }.average()
+                tvExpMamdaniStats.text = "Mamdani: ${"%.1f".format(mamAcc)}% (${"%.2f".format(mamErr)}m)"
+            } else {
+                tvExpMamdaniStats.text = "Mamdani: --% (Err: --m)"
+            }
         }
     }
 
@@ -238,8 +263,10 @@ class ExperimentTabController(
         adapter?.addRecord(result)
         tvExpEmptyHistory.visibility = View.GONE
         rvExpHistory.visibility = View.VISIBLE
-        tvExpKnnStats.text = "k-NN: ${"%.1f".format(stats.knnAccuracyPct)}% (Mean Err: ${"%.2f".format(stats.knnAvgErrorMeters)}m)"
-        tvExpFuzzyStats.text = "Fuzzy: ${"%.1f".format(stats.fuzzyAccuracyPct)}% (Mean Err: ${"%.2f".format(stats.fuzzyAvgErrorMeters)}m)"
+        tvExpKnnStats.text = "k-NN: ${"%.1f".format(stats.knnAccuracyPct)}% (${"%.2f".format(stats.knnAvgErrorMeters)}m)"
+        tvExpFuzzyStats.text = "Matrix: ${"%.1f".format(stats.fuzzyAccuracyPct)}% (${"%.2f".format(stats.fuzzyAvgErrorMeters)}m)"
+        tvExpPatternStats.text = "Pattern: ${"%.1f".format(stats.patternAccuracyPct)}% (${"%.2f".format(stats.patternAvgErrorMeters)}m)"
+        tvExpMamdaniStats.text = "Mamdani: ${"%.1f".format(stats.mamdaniAccuracyPct)}% (${"%.2f".format(stats.mamdaniAvgErrorMeters)}m)"
     }
 
     fun onExperimentFinished(stats: ExperimentSummaryStats) {
@@ -247,7 +274,7 @@ class ExperimentTabController(
         layoutExpProgress.visibility = View.GONE
         Toast.makeText(
             activity,
-            "Experiment complete! k-NN: ${"%.1f".format(stats.knnAccuracyPct)}% | Fuzzy: ${"%.1f".format(stats.fuzzyAccuracyPct)}%",
+            "Done! k-NN: ${"%.1f".format(stats.knnAccuracyPct)}% | Matrix: ${"%.1f".format(stats.fuzzyAccuracyPct)}% | Pat: ${"%.1f".format(stats.patternAccuracyPct)}% | Mamdani: ${"%.1f".format(stats.mamdaniAccuracyPct)}%",
             Toast.LENGTH_LONG
         ).show()
     }
