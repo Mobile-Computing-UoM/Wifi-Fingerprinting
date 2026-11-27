@@ -30,6 +30,8 @@
 
     <color name="status_success">#15803D</color>
     <color name="status_success_bg">#EAF7EE</color>
+    <color name="status_warning">#B45309</color>
+    <color name="status_warning_bg">#FEF3C7</color>
     <color name="status_error">#C62828</color>
     <color name="status_error_bg">#FDECEC</color>
     <color name="badge_bg">#E0E7FF</color>

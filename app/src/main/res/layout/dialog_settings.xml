@@ -28,13 +28,21 @@
             android:layout_marginBottom="16dp">
 
             <RadioButton
+                android:id="@+id/rbStrategyHybrid"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Smart Hybrid (WKNN + Mamdani FIS)"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp"
+                android:checked="true" />
+
+            <RadioButton
                 android:id="@+id/rbStrategyBoth"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="k-NN vs Fuzzy Matrix (Side-by-Side)"
                 android:textColor="@color/text_primary"
-                android:textSize="13sp"
-                android:checked="true" />
+                android:textSize="13sp" />
 
             <RadioButton
                 android:id="@+id/rbStrategyKnn"

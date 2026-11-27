@@ -5,18 +5,17 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/surface_canvas"
-    android:paddingHorizontal="12dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp">
+    android:background="@color/surface_canvas">
 
-    <!-- Top App Header Bar (Visibility of System Status + Quick Theme/Settings Access) -->
+    <!-- Minimal Consumer Top Bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="8dp">
+        android:paddingHorizontal="14dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="8dp">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -27,23 +26,37 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/wi_fi_fingerprint_scanner"
-                android:textSize="18sp"
+                android:text="Indoor Locator"
+                android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"
                 android:letterSpacing="-0.01" />
 
             <TextView
+                android:id="@+id/tvHeaderSubtitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Indoor RF Positioning &amp; Fuzzy Inference"
-                android:textSize="11sp"
+                android:text="Smart Hybrid Positioning"
+                android:textSize="11.5sp"
                 android:textColor="@color/text_muted" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/tvHeaderMapPill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="My Map · 0 rooms"
+            android:textSize="11.5sp"
+            android:textStyle="bold"
+            android:textColor="@color/badge_text"
+            android:background="@drawable/bg_badge_pill"
+            android:paddingHorizontal="11dp"
+            android:paddingVertical="5dp"
+            android:layout_marginEnd="8dp" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnThemeToggle"
-            android:layout_width="42dp"
+            android:layout_width="40dp"
             android:layout_height="40dp"
             android:text="🌓"
             android:textSize="15sp"
@@ -51,574 +64,631 @@
             android:insetBottom="0dp"
             android:padding="0dp"
             android:contentDescription="Toggle Light and Dark Theme"
-            app:cornerRadius="10dp"
-            app:backgroundTint="@color/btn_tonal_bg"
-            android:textColor="@color/btn_tonal_text"
-            android:layout_marginEnd="6dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSettings"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:text="⚙️ Settings"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:paddingHorizontal="12dp"
-            app:cornerRadius="10dp"
+            app:cornerRadius="12dp"
             app:backgroundTint="@color/btn_tonal_bg"
             android:textColor="@color/btn_tonal_text" />
     </LinearLayout>
 
-    <!-- Navigation Tabs inside Rounded Card -->
-    <com.google.android.material.card.MaterialCardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        app:cardBackgroundColor="@color/surface_card"
-        app:cardCornerRadius="12dp"
-        app:cardElevation="0dp"
-        app:strokeColor="@color/stroke_subtle"
-        app:strokeWidth="1dp">
-
-        <com.google.android.material.tabs.TabLayout
-            android:id="@+id/tabLayout"
-            android:layout_width="match_parent"
-            android:layout_height="42dp"
-            android:background="@android:color/transparent"
-            app:tabTextColor="@color/text_secondary"
-            app:tabSelectedTextColor="@color/brand_primary"
-            app:tabIndicatorColor="@color/brand_primary"
-            app:tabIndicatorHeight="3dp"
-            app:tabIndicatorFullWidth="false"
-            app:tabRippleColor="@color/surface_tonal" />
-    </com.google.android.material.card.MaterialCardView>
-
-    <!-- TAB 1 CONTENT: Scanner Controls & Logs -->
-    <LinearLayout
-        android:id="@+id/layoutScannerView"
+    <!-- Main Content Container -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:orientation="vertical">
+        android:paddingHorizontal="12dp">
 
-        <!-- Live System Status Pill -->
-        <TextView
-            android:id="@+id/tvSettingsSummary"
+        <!-- 1. Locate (Home) -->
+        <include layout="@layout/view_locate" />
+
+        <!-- 2. Rooms (Map Management) -->
+        <include layout="@layout/view_rooms" />
+
+        <!-- 3. Settings (Consumer) -->
+        <include layout="@layout/view_settings_user" />
+
+        <!-- 4. Lab Mode (Existing Full Research Workbench) -->
+        <LinearLayout
+            android:id="@+id/containerLab"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Params: Survey=50 (70/30 Split) | Locate=10 | Auto-Calib=OFF"
-            android:textSize="11sp"
-            android:textColor="@color/text_secondary"
-            android:background="@drawable/bg_card_tonal"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="6dp"
-            android:layout_marginBottom="8dp" />
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:visibility="gone">
 
-        <!-- Card 1: Radio Map Source & Physical Spot Coordinates -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            app:cardBackgroundColor="@color/surface_card"
-            app:cardCornerRadius="14dp"
-            app:cardElevation="0dp"
-            app:strokeColor="@color/stroke_subtle"
-            app:strokeWidth="1dp">
-
+            <!-- Lab Top Bar with Full Hyperparameters Dialog Button -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="10dp">
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="6dp">
 
-                <!-- Radio Map Selector Row -->
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Research Workbench"
+                    android:textSize="13.5sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_accent" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnSettings"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="⚙️ Hyperparameters"
+                    android:textSize="11.5sp"
+                    android:textStyle="bold"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:paddingHorizontal="10dp"
+                    app:cornerRadius="10dp"
+                    app:backgroundTint="@color/btn_tonal_bg"
+                    android:textColor="@color/btn_tonal_text" />
+            </LinearLayout>
+
+            <!-- Navigation Tabs inside Rounded Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                app:cardBackgroundColor="@color/surface_card"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeColor="@color/stroke_subtle"
+                app:strokeWidth="1dp">
+
+                <com.google.android.material.tabs.TabLayout
+                    android:id="@+id/tabLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:background="@android:color/transparent"
+                    app:tabTextColor="@color/text_secondary"
+                    app:tabSelectedTextColor="@color/brand_primary"
+                    app:tabIndicatorColor="@color/brand_primary"
+                    app:tabIndicatorHeight="3dp"
+                    app:tabIndicatorFullWidth="false"
+                    app:tabRippleColor="@color/surface_tonal" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- TAB 1 CONTENT: Scanner Controls & Logs -->
+            <LinearLayout
+                android:id="@+id/layoutScannerView"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <!-- Live System Status Pill -->
+                <TextView
+                    android:id="@+id/tvSettingsSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Params: Survey=20 | Locate=5 | Auto-Calib=OFF"
+                    android:textSize="11sp"
+                    android:textColor="@color/text_secondary"
+                    android:background="@drawable/bg_card_tonal"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="6dp"
+                    android:layout_marginBottom="8dp" />
+
+                <!-- Card 1: Radio Map Source & Physical Spot Coordinates -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    app:cardBackgroundColor="@color/surface_card"
+                    app:cardCornerRadius="14dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@color/stroke_subtle"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="10dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginBottom="8dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Radio Map"
+                                android:textStyle="bold"
+                                android:textSize="12sp"
+                                android:textColor="@color/text_accent"
+                                android:layout_marginEnd="10dp" />
+
+                            <RadioGroup
+                                android:id="@+id/rgMapSource"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal">
+
+                                <RadioButton
+                                    android:id="@+id/rbSourceLocal"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="34dp"
+                                    android:text="📱 Local"
+                                    android:textSize="12sp"
+                                    android:textColor="@color/text_primary"
+                                    android:checked="true"
+                                    android:layout_marginEnd="14dp" />
+
+                                <RadioButton
+                                    android:id="@+id/rbSourceImported"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="34dp"
+                                    android:text="📥 Imported Ref"
+                                    android:textSize="12sp"
+                                    android:textColor="@color/text_primary" />
+                            </RadioGroup>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <EditText
+                                android:id="@+id/editSpotName"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="1.7"
+                                android:hint="@string/enter_spot_label_e_g_spot_1"
+                                android:textColor="@color/text_primary"
+                                android:textColorHint="@color/text_muted"
+                                android:textSize="13sp"
+                                android:singleLine="true"
+                                android:background="@drawable/bg_input_rounded"
+                                android:layout_marginEnd="6dp" />
+
+                            <EditText
+                                android:id="@+id/editSurveyCoordX"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="0.75"
+                                android:hint="X (m)"
+                                android:textColor="@color/text_primary"
+                                android:textColorHint="@color/text_muted"
+                                android:gravity="center"
+                                android:textSize="13sp"
+                                android:singleLine="true"
+                                android:background="@drawable/bg_input_rounded"
+                                android:inputType="numberDecimal|numberSigned"
+                                android:layout_marginEnd="6dp" />
+
+                            <EditText
+                                android:id="@+id/editSurveyCoordY"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="0.75"
+                                android:hint="Y (m)"
+                                android:textColor="@color/text_primary"
+                                android:textColorHint="@color/text_muted"
+                                android:gravity="center"
+                                android:textSize="13sp"
+                                android:singleLine="true"
+                                android:background="@drawable/bg_input_rounded"
+                                android:inputType="numberDecimal|numberSigned" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Primary Action Zone -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="6dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSurvey"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="@string/_1_record_survey_sample"
+                        android:textStyle="bold"
+                        android:textSize="13sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        app:cornerRadius="12dp"
+                        app:backgroundTint="@color/btn_primary_bg"
+                        android:textColor="@color/btn_primary_text" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnStopSurvey"
+                        android:layout_width="wrap_content"
+                        android:layout_height="48dp"
+                        android:text="⏹️ Stop"
+                        android:textStyle="bold"
+                        android:textSize="13sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        app:cornerRadius="12dp"
+                        app:backgroundTint="@color/btn_danger_bg"
+                        android:textColor="@color/btn_danger_text"
+                        android:layout_marginStart="6dp"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnLocate"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="@string/_2_where_am_i_k_nn_match"
+                    android:textStyle="bold"
+                    android:textSize="13sp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    app:cornerRadius="12dp"
+                    app:backgroundTint="@color/btn_secondary_bg"
+                    android:textColor="@color/btn_secondary_text"
+                    android:layout_marginBottom="8dp" />
+
+                <!-- Secondary Tools Row 1 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="5dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnViewMatrix"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:text="📊 Matrix"
+                        android:textSize="12sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="6dp"
+                        app:cornerRadius="10dp"
+                        app:backgroundTint="@color/btn_tonal_bg"
+                        android:textColor="@color/btn_tonal_text"
+                        android:layout_marginEnd="4dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnViewMamdaniRules"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1.2"
+                        android:text="🧠 Mamdani FIS"
+                        android:textSize="12sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="6dp"
+                        app:cornerRadius="10dp"
+                        app:backgroundTint="@color/btn_purple_bg"
+                        android:textColor="@color/btn_purple_text"
+                        android:layout_marginHorizontal="2dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearData"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:text="🗑️ Clear DB"
+                        android:textSize="12sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="6dp"
+                        app:cornerRadius="10dp"
+                        app:backgroundTint="@color/status_error_bg"
+                        android:textColor="@color/status_error"
+                        app:strokeColor="@color/status_error"
+                        app:strokeWidth="1dp"
+                        android:layout_marginStart="4dp" />
+                </LinearLayout>
+
+                <!-- Secondary Tools Row 2 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnShareMap"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_weight="1"
+                        android:text="📤 Share Map"
+                        android:textSize="12sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="6dp"
+                        app:cornerRadius="10dp"
+                        app:backgroundTint="@color/btn_tonal_bg"
+                        android:textColor="@color/btn_tonal_text"
+                        android:layout_marginEnd="4dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnImportMap"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_weight="1"
+                        android:text="📥 Import Ref"
+                        android:textSize="12sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="6dp"
+                        app:cornerRadius="10dp"
+                        app:backgroundTint="@color/btn_tonal_bg"
+                        android:textColor="@color/btn_tonal_text"
+                        android:layout_marginStart="2dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCalibrate"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_weight="1"
+                        android:text="🎯 Calibrate"
+                        android:textSize="12sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="6dp"
+                        app:cornerRadius="10dp"
+                        app:backgroundTint="@color/btn_purple_bg"
+                        android:textColor="@color/btn_purple_text"
+                        android:layout_marginStart="4dp"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- Progress Bar Section -->
+                <LinearLayout
+                    android:id="@+id/layoutProgress"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginBottom="8dp"
+                    android:background="@drawable/bg_card_tonal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="8dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tvProgressLabel"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Survey Progress"
+                            android:textStyle="bold"
+                            android:textSize="12sp"
+                            android:textColor="@color/text_accent" />
+
+                        <TextView
+                            android:id="@+id/tvProgressText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0/20 (0% completed)"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/brand_primary" />
+                    </LinearLayout>
+
+                    <ProgressBar
+                        android:id="@+id/progressBar"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="8dp"
+                        android:layout_marginTop="5dp"
+                        android:max="100"
+                        android:progress="0"
+                        android:indeterminate="false"
+                        android:progressTint="@color/brand_primary"
+                        android:progressBackgroundTint="@color/stroke_subtle" />
+                </LinearLayout>
+
+                <!-- Terminal Logs Console -->
+                <ScrollView
+                    android:id="@+id/scrollView"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_console_rounded"
+                    android:padding="10dp"
+                    android:clipToPadding="false">
+
+                    <TextView
+                        android:id="@+id/tvLogs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Logs will appear here..."
+                        android:textColor="@color/console_text"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="2dp"
+                        android:textSize="11.5sp" />
+                </ScrollView>
+            </LinearLayout>
+
+            <!-- TAB 2 CONTENT: Survey Train/Test Calibration Accuracy History -->
+            <LinearLayout
+                android:id="@+id/layoutSurveyAccView"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:visibility="gone">
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
+                    android:background="@drawable/bg_card_tonal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="8dp"
                     android:layout_marginBottom="8dp">
 
                     <TextView
-                        android:layout_width="wrap_content"
+                        android:id="@+id/tvSurveyAccStats"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:text="Radio Map"
-                        android:textStyle="bold"
+                        android:layout_weight="1"
+                        android:text="Survey Train/Test Validation Records"
                         android:textSize="12sp"
-                        android:textColor="@color/text_accent"
-                        android:layout_marginEnd="10dp" />
+                        android:textStyle="bold"
+                        android:textColor="@color/text_accent" />
 
-                    <RadioGroup
-                        android:id="@+id/rgMapSource"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRefreshSurveyAcc"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="🔄 Refresh"
+                        android:textSize="11sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="10dp"
+                        app:cornerRadius="8dp"
+                        app:backgroundTint="@color/btn_primary_bg"
+                        android:textColor="@color/btn_primary_text" />
 
-                        <RadioButton
-                            android:id="@+id/rbSourceLocal"
-                            android:layout_width="wrap_content"
-                            android:layout_height="34dp"
-                            android:text="📱 Local"
-                            android:textSize="12sp"
-                            android:textColor="@color/text_primary"
-                            android:checked="true"
-                            android:layout_marginEnd="14dp" />
-
-                        <RadioButton
-                            android:id="@+id/rbSourceImported"
-                            android:layout_width="wrap_content"
-                            android:layout_height="34dp"
-                            android:text="📥 Imported Ref"
-                            android:textSize="12sp"
-                            android:textColor="@color/text_primary" />
-                    </RadioGroup>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnDeleteAllSurveyAcc"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="🗑️ Delete All"
+                        android:textSize="11sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="10dp"
+                        app:cornerRadius="8dp"
+                        app:backgroundTint="@color/btn_danger_bg"
+                        android:textColor="@color/btn_danger_text"
+                        android:layout_marginStart="6dp" />
                 </LinearLayout>
 
-                <!-- Spot Name + X/Y Coordinates Input Row -->
+                <TextView
+                    android:id="@+id/tvEmptySurveyAcc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="No survey calibration records yet.\nRecord a survey spot with train/test split to log validation history."
+                    android:gravity="center"
+                    android:textSize="13sp"
+                    android:textColor="@color/text_muted"
+                    android:padding="28dp"
+                    android:visibility="gone" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvSurveyAccHistory"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:clipToPadding="false"
+                    android:paddingBottom="8dp" />
+            </LinearLayout>
+
+            <!-- TAB 3 CONTENT: Inference History & Live Validation Records -->
+            <LinearLayout
+                android:id="@+id/layoutHistoryView"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:visibility="gone">
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:gravity="center_vertical"
+                    android:background="@drawable/bg_card_tonal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="8dp"
+                    android:layout_marginBottom="8dp">
 
-                    <EditText
-                        android:id="@+id/editSpotName"
+                    <TextView
+                        android:id="@+id/tvHistoryStats"
                         android:layout_width="0dp"
-                        android:layout_height="44dp"
-                        android:layout_weight="1.7"
-                        android:hint="@string/enter_spot_label_e_g_spot_1"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_muted"
-                        android:textSize="13sp"
-                        android:singleLine="true"
-                        android:background="@drawable/bg_input_rounded"
-                        android:layout_marginEnd="6dp" />
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Inference Validation History"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_accent" />
 
-                    <EditText
-                        android:id="@+id/editSurveyCoordX"
-                        android:layout_width="0dp"
-                        android:layout_height="44dp"
-                        android:layout_weight="0.75"
-                        android:hint="X (m)"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_muted"
-                        android:gravity="center"
-                        android:textSize="13sp"
-                        android:singleLine="true"
-                        android:background="@drawable/bg_input_rounded"
-                        android:inputType="numberDecimal|numberSigned"
-                        android:layout_marginEnd="6dp" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRefreshHistory"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="🔄 Refresh"
+                        android:textSize="11sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="10dp"
+                        app:cornerRadius="8dp"
+                        app:backgroundTint="@color/btn_primary_bg"
+                        android:textColor="@color/btn_primary_text" />
 
-                    <EditText
-                        android:id="@+id/editSurveyCoordY"
-                        android:layout_width="0dp"
-                        android:layout_height="44dp"
-                        android:layout_weight="0.75"
-                        android:hint="Y (m)"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_muted"
-                        android:gravity="center"
-                        android:textSize="13sp"
-                        android:singleLine="true"
-                        android:background="@drawable/bg_input_rounded"
-                        android:inputType="numberDecimal|numberSigned" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnDeleteAllHistory"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="🗑️ Delete All"
+                        android:textSize="11sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="10dp"
+                        app:cornerRadius="8dp"
+                        app:backgroundTint="@color/btn_danger_bg"
+                        android:textColor="@color/btn_danger_text"
+                        android:layout_marginStart="6dp" />
                 </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Primary Action Zone (Fitts's Law: Prominent 48dp Touch Targets) -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="6dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSurvey"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:text="@string/_1_record_survey_sample"
-                android:textStyle="bold"
-                android:textSize="13sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                app:cornerRadius="12dp"
-                app:backgroundTint="@color/btn_primary_bg"
-                android:textColor="@color/btn_primary_text" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnStopSurvey"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:text="⏹️ Stop"
-                android:textStyle="bold"
-                android:textSize="13sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                app:cornerRadius="12dp"
-                app:backgroundTint="@color/btn_danger_bg"
-                android:textColor="@color/btn_danger_text"
-                android:layout_marginStart="6dp"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnLocate"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="@string/_2_where_am_i_k_nn_match"
-            android:textStyle="bold"
-            android:textSize="13sp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            app:cornerRadius="12dp"
-            app:backgroundTint="@color/btn_secondary_bg"
-            android:textColor="@color/btn_secondary_text"
-            android:layout_marginBottom="8dp" />
-
-        <!-- Secondary Tools Row 1: Model Inspectors & Destructive Reset -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="5dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnViewMatrix"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:text="📊 Matrix"
-                android:textSize="12sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="6dp"
-                app:cornerRadius="10dp"
-                app:backgroundTint="@color/btn_tonal_bg"
-                android:textColor="@color/btn_tonal_text"
-                android:layout_marginEnd="4dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnViewMamdaniRules"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1.2"
-                android:text="🧠 Mamdani FIS"
-                android:textSize="12sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="6dp"
-                app:cornerRadius="10dp"
-                app:backgroundTint="@color/btn_purple_bg"
-                android:textColor="@color/btn_purple_text"
-                android:layout_marginHorizontal="2dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnClearData"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:text="🗑️ Clear DB"
-                android:textSize="12sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="6dp"
-                app:cornerRadius="10dp"
-                app:backgroundTint="@color/status_error_bg"
-                android:textColor="@color/status_error"
-                app:strokeColor="@color/status_error"
-                app:strokeWidth="1dp"
-                android:layout_marginStart="4dp" />
-        </LinearLayout>
-
-        <!-- Secondary Tools Row 2: Cross-Device Map Sharing & Antenna Calibration -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnShareMap"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="📤 Share Map"
-                android:textSize="12sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="6dp"
-                app:cornerRadius="10dp"
-                app:backgroundTint="@color/btn_tonal_bg"
-                android:textColor="@color/btn_tonal_text"
-                android:layout_marginEnd="4dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnImportMap"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="📥 Import Ref"
-                android:textSize="12sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="6dp"
-                app:cornerRadius="10dp"
-                app:backgroundTint="@color/btn_tonal_bg"
-                android:textColor="@color/btn_tonal_text"
-                android:layout_marginStart="2dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnCalibrate"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="🎯 Calibrate"
-                android:textSize="12sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="6dp"
-                app:cornerRadius="10dp"
-                app:backgroundTint="@color/btn_purple_bg"
-                android:textColor="@color/btn_purple_text"
-                android:layout_marginStart="4dp"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <!-- Progress Bar Section (System Status Feedback) -->
-        <LinearLayout
-            android:id="@+id/layoutProgress"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginBottom="8dp"
-            android:background="@drawable/bg_card_tonal"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="8dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
 
                 <TextView
-                    android:id="@+id/tvProgressLabel"
-                    android:layout_width="0dp"
+                    android:id="@+id/tvEmptyHistory"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:text="No inference history records yet.\nRun 'Where Am I?' and validate your location to record history."
+                    android:gravity="center"
+                    android:textSize="13sp"
+                    android:textColor="@color/text_muted"
+                    android:padding="28dp"
+                    android:visibility="gone" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvFeedbackHistory"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
                     android:layout_weight="1"
-                    android:text="Survey Progress"
-                    android:textStyle="bold"
-                    android:textSize="12sp"
-                    android:textColor="@color/text_accent" />
-
-                <TextView
-                    android:id="@+id/tvProgressText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0/50 (0% completed)"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/brand_primary" />
+                    android:clipToPadding="false"
+                    android:paddingBottom="8dp" />
             </LinearLayout>
 
-            <ProgressBar
-                android:id="@+id/progressBar"
-                style="?android:attr/progressBarStyleHorizontal"
+            <!-- TAB 4 CONTENT: Automated Positioning Experiment -->
+            <include
+                layout="@layout/layout_experiment"
                 android:layout_width="match_parent"
-                android:layout_height="8dp"
-                android:layout_marginTop="5dp"
-                android:max="100"
-                android:progress="0"
-                android:indeterminate="false"
-                android:progressTint="@color/brand_primary"
-                android:progressBackgroundTint="@color/stroke_subtle" />
+                android:layout_height="0dp"
+                android:layout_weight="1" />
         </LinearLayout>
+    </FrameLayout>
 
-        <!-- Terminal Logs Console -->
-        <ScrollView
-            android:id="@+id/scrollView"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_console_rounded"
-            android:padding="10dp"
-            android:clipToPadding="false">
-
-            <TextView
-                android:id="@+id/tvLogs"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Logs will appear here..."
-                android:textColor="@color/console_text"
-                android:fontFamily="monospace"
-                android:lineSpacingExtra="2dp"
-                android:textSize="11.5sp" />
-        </ScrollView>
-    </LinearLayout>
-
-    <!-- TAB 2 CONTENT: Survey Train/Test Calibration Accuracy History -->
-    <LinearLayout
-        android:id="@+id/layoutSurveyAccView"
+    <!-- Bottom Navigation Divider + Bar -->
+    <View
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:visibility="gone">
+        android:layout_height="1dp"
+        android:background="@color/divider_subtle" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_card_tonal"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="8dp"
-            android:layout_marginBottom="8dp">
-
-            <TextView
-                android:id="@+id/tvSurveyAccStats"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Survey Train/Test Validation Records"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:textColor="@color/text_accent" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRefreshSurveyAcc"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="🔄 Refresh"
-                android:textSize="11sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="10dp"
-                app:cornerRadius="8dp"
-                app:backgroundTint="@color/btn_primary_bg"
-                android:textColor="@color/btn_primary_text" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnDeleteAllSurveyAcc"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="🗑️ Delete All"
-                android:textSize="11sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="10dp"
-                app:cornerRadius="8dp"
-                app:backgroundTint="@color/btn_danger_bg"
-                android:textColor="@color/btn_danger_text"
-                android:layout_marginStart="6dp" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/tvEmptySurveyAcc"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="No survey calibration records yet.\nRecord a survey spot with train/test split to log validation history."
-            android:gravity="center"
-            android:textSize="13sp"
-            android:textColor="@color/text_muted"
-            android:padding="28dp"
-            android:visibility="gone" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvSurveyAccHistory"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:clipToPadding="false"
-            android:paddingBottom="8dp" />
-    </LinearLayout>
-
-    <!-- TAB 3 CONTENT: Inference History & Live Validation Records -->
-    <LinearLayout
-        android:id="@+id/layoutHistoryView"
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNav"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_card_tonal"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="8dp"
-            android:layout_marginBottom="8dp">
-
-            <TextView
-                android:id="@+id/tvHistoryStats"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Inference Validation History"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:textColor="@color/text_accent" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRefreshHistory"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="🔄 Refresh"
-                android:textSize="11sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="10dp"
-                app:cornerRadius="8dp"
-                app:backgroundTint="@color/btn_primary_bg"
-                android:textColor="@color/btn_primary_text" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnDeleteAllHistory"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="🗑️ Delete All"
-                android:textSize="11sp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:paddingHorizontal="10dp"
-                app:cornerRadius="8dp"
-                app:backgroundTint="@color/btn_danger_bg"
-                android:textColor="@color/btn_danger_text"
-                android:layout_marginStart="6dp" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/tvEmptyHistory"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="No inference history records yet.\nRun 'Where Am I?' and validate your location to record history."
-            android:gravity="center"
-            android:textSize="13sp"
-            android:textColor="@color/text_muted"
-            android:padding="28dp"
-            android:visibility="gone" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvFeedbackHistory"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:clipToPadding="false"
-            android:paddingBottom="8dp" />
-    </LinearLayout>
-
-    <!-- TAB 4 CONTENT: Automated Positioning Experiment -->
-    <include
-        layout="@layout/layout_experiment"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
-
+        android:layout_height="wrap_content"
+        android:background="@color/surface_card"
+        app:elevation="0dp"
+        app:itemIconTint="@color/brand_primary"
+        app:itemTextColor="@color/text_primary"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/menu_bottom_nav" />
 </LinearLayout>

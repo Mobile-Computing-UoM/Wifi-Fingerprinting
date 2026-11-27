@@ -20,7 +20,10 @@ data class SurveyCalibrationRecord(
     val knnAccuracy: Double,
     val fuzzyAccuracy: Double,
     val autoCalibrated: String,
-    val rawCsvLine: String
+    val rawCsvLine: String,
+    val mamdaniAccuracy: Double = -1.0,
+    val hybridAccuracy: Double = -1.0,
+    val selectedEngine: String = ""
 )
 
 /**
@@ -38,6 +41,8 @@ class SurveyCalibrationAdapter(
         val tvScanSplit: TextView = view.findViewById(R.id.tvCalibScanSplit)
         val tvKnnAcc: TextView = view.findViewById(R.id.tvCalibKnnAcc)
         val tvFuzzyAcc: TextView = view.findViewById(R.id.tvCalibFuzzyAcc)
+        val tvMamdaniAcc: TextView = view.findViewById(R.id.tvCalibMamdaniAcc)
+        val tvHybridAcc: TextView = view.findViewById(R.id.tvCalibHybridAcc)
         val tvAutoBadge: TextView = view.findViewById(R.id.tvCalibAutoBadge)
     }
 
@@ -56,9 +61,27 @@ class SurveyCalibrationAdapter(
             item.isoTime
         }
 
-        holder.tvScanSplit.text = "📊 Scans: ${item.totalScans} Total (${item.trainScans} Build / ${item.testScans} Held-Out Test)"
-        holder.tvKnnAcc.text = "• Strategy 1 (Centroid / k-NN): ${"%.1f".format(item.knnAccuracy)}%"
+        val engineNote = if (item.selectedEngine.isNotBlank()) " · Active: ${item.selectedEngine}" else ""
+        holder.tvScanSplit.text = "📊 Scans: ${item.totalScans} Total (${item.trainScans} Build / ${item.testScans} Held-Out Test)$engineNote"
+        val knnTag = if (item.selectedEngine.equals("WKNN", ignoreCase = true)) " ★" else ""
+        val mamTag = if (item.selectedEngine.equals("Mamdani FIS", ignoreCase = true)) " ★" else ""
+        val hybTag = if (item.selectedEngine.equals("Smart Hybrid", ignoreCase = true)) " ★" else ""
+        holder.tvKnnAcc.text = "• Strategy 1 (WKNN): ${"%.1f".format(item.knnAccuracy)}%$knnTag"
         holder.tvFuzzyAcc.text = "• Strategy 2 (Fuzzy Matrix): ${"%.1f".format(item.fuzzyAccuracy)}%"
+
+        if (item.mamdaniAccuracy >= 0.0) {
+            holder.tvMamdaniAcc.visibility = View.VISIBLE
+            holder.tvMamdaniAcc.text = "• Strategy 4 (Mamdani FIS): ${"%.1f".format(item.mamdaniAccuracy)}%$mamTag"
+        } else {
+            holder.tvMamdaniAcc.visibility = View.GONE
+        }
+
+        if (item.hybridAccuracy >= 0.0) {
+            holder.tvHybridAcc.visibility = View.VISIBLE
+            holder.tvHybridAcc.text = "• Smart Hybrid (WKNN + FIS): ${"%.1f".format(item.hybridAccuracy)}%$hybTag"
+        } else {
+            holder.tvHybridAcc.visibility = View.GONE
+        }
 
         holder.tvAutoBadge.text = "⚡ Auto-Calibration: ${item.autoCalibrated}"
 

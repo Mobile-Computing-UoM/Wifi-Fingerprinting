@@ -65,6 +65,7 @@ data class LocalizationResult(
  * Strategy mode selector for user settings.
  */
 enum class StrategyMode(val key: String, val title: String) {
+    HYBRID("HYBRID", "Smart Hybrid (WKNN + Mamdani FIS)"),
     KNN("KNN", "Strategy 1: k-NN Only"),
     FUZZY_MATRIX("FUZZY_MATRIX", "Strategy 2: Fuzzy 3D Matrix Only"),
     PATTERN("PATTERN", "Strategy 3: Cross-Device Pattern Only"),
@@ -74,7 +75,7 @@ enum class StrategyMode(val key: String, val title: String) {
 
     companion object {
         fun fromKey(key: String?): StrategyMode {
-            return entries.firstOrNull { it.key == key } ?: BOTH
+            return entries.firstOrNull { it.key == key } ?: HYBRID
         }
     }
 }

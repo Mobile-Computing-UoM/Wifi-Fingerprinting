@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp"
+    android:background="@color/surface_card">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Room Name"
+        android:textStyle="bold"
+        android:textSize="13sp"
+        android:textColor="@color/text_primary"
+        android:layout_marginBottom="6dp" />
+
+    <EditText
+        android:id="@+id/editAddRoomName"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:hint="e.g. Bedroom, Hall, Kitchen"
+        android:singleLine="true"
+        android:textSize="14sp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_muted"
+        android:background="@drawable/bg_input_rounded"
+        android:layout_marginBottom="14dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Floor-Plan Coordinates (Optional, in metres)"
+        android:textStyle="bold"
+        android:textSize="13sp"
+        android:textColor="@color/text_primary"
+        android:layout_marginBottom="6dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="12dp">
+
+        <EditText
+            android:id="@+id/editAddRoomX"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:hint="X (m)"
+            android:gravity="center"
+            android:singleLine="true"
+            android:inputType="numberDecimal|numberSigned"
+            android:textSize="13.5sp"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_muted"
+            android:background="@drawable/bg_input_rounded"
+            android:layout_marginEnd="6dp" />
+
+        <EditText
+            android:id="@+id/editAddRoomY"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:hint="Y (m)"
+            android:gravity="center"
+            android:singleLine="true"
+            android:inputType="numberDecimal|numberSigned"
+            android:textSize="13.5sp"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_muted"
+            android:background="@drawable/bg_input_rounded"
+            android:layout_marginStart="6dp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvAddRoomScanInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Hold your phone still in this room while 20 Wi-Fi scans are captured."
+        android:textSize="12sp"
+        android:textColor="@color/text_secondary"
+        android:background="@drawable/bg_card_tonal"
+        android:padding="10dp" />
+</LinearLayout>

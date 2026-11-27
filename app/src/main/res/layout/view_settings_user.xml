@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/containerSettings"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:visibility="gone"
+    android:clipToPadding="false">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="20dp">
+
+        <!-- Section 1: Positioning Engine -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="POSITIONING ENGINE"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.06"
+            android:textColor="@color/text_muted"
+            android:layout_marginStart="4dp"
+            android:layout_marginBottom="6dp" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/surface_card"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/stroke_subtle"
+            app:strokeWidth="1dp">
+
+            <RadioGroup
+                android:id="@+id/rgUserEngine"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="12dp">
+
+                <RadioButton
+                    android:id="@+id/rbUserEngineHybrid"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Smart Hybrid (Recommended)\nFuses WKNN + Mamdani Fuzzy Logic"
+                    android:textSize="13.5sp"
+                    android:textColor="@color/text_primary"
+                    android:paddingVertical="6dp"
+                    android:checked="true" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/divider_subtle"
+                    android:layout_marginVertical="4dp" />
+
+                <RadioButton
+                    android:id="@+id/rbUserEngineKnn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Fast Precision (WKNN)\nDistance-weighted k-NN (k=3)"
+                    android:textSize="13.5sp"
+                    android:textColor="@color/text_primary"
+                    android:paddingVertical="6dp" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/divider_subtle"
+                    android:layout_marginVertical="4dp" />
+
+                <RadioButton
+                    android:id="@+id/rbUserEngineMamdani"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Mamdani Fuzzy Logic (FIS)\nLinguistic IF-THEN rules &amp; Centroid"
+                    android:textSize="13.5sp"
+                    android:textColor="@color/text_primary"
+                    android:paddingVertical="6dp" />
+            </RadioGroup>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Survey Held-Out Validation Toggle -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/surface_card"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/stroke_subtle"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchSurveyTestSplit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Survey Held-Out Test (70/30)"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Uses 70% of scans to build and 30% to test the selected engine (WKNN, Mamdani FIS, or Hybrid). Default: 10 scans (7 build / 3 test)."
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginTop="4dp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Section 2: Appearance & Map -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="APPEARANCE &amp; MAP TOOLS"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.06"
+            android:textColor="@color/text_muted"
+            android:layout_marginStart="4dp"
+            android:layout_marginBottom="6dp" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/surface_card"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/stroke_subtle"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnUserThemeSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:text="🌓  Switch Light / Dark Theme"
+                    android:textSize="13.5sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="12dp"
+                    app:backgroundTint="@color/btn_tonal_bg"
+                    android:textColor="@color/btn_tonal_text"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnUserCalibrate"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:text="🎯  Calibrate for Imported Map"
+                    android:textSize="13.5sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="12dp"
+                    app:backgroundTint="@color/btn_purple_bg"
+                    android:textColor="@color/btn_purple_text"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnUserClearMap"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:text="🗑️  Clear All Saved Rooms"
+                    android:textSize="13.5sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="12dp"
+                    app:backgroundTint="@color/status_error_bg"
+                    android:textColor="@color/status_error"
+                    app:strokeColor="@color/status_error"
+                    app:strokeWidth="1dp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Section 3: Developer / Lab Mode -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="RESEARCH &amp; DIAGNOSTICS"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.06"
+            android:textColor="@color/text_muted"
+            android:layout_marginStart="4dp"
+            android:layout_marginBottom="6dp" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="@color/surface_card"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/stroke_subtle"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchLabMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Developer / Lab Mode"
+                    android:textSize="14.5sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Shows the Lab tab with Automated Experiment Runner, Raw Signal Console, 3D Fuzzy Matrix, Mamdani Rules &amp; Hyperparameters."
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginTop="4dp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_locate"
+        android:icon="@drawable/ic_nav_locate"
+        android:title="Locate" />
+    <item
+        android:id="@+id/nav_rooms"
+        android:icon="@drawable/ic_nav_rooms"
+        android:title="Rooms" />
+    <item
+        android:id="@+id/nav_settings"
+        android:icon="@drawable/ic_nav_settings"
+        android:title="Settings" />
+    <item
+        android:id="@+id/nav_lab"
+        android:icon="@drawable/ic_nav_lab"
+        android:title="Lab"
+        android:visible="false" />
+</menu>

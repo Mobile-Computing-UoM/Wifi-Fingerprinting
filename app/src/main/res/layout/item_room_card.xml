@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    app:cardBackgroundColor="@color/surface_card"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="0dp"
+    app:strokeColor="@color/stroke_subtle"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="12dp">
+
+        <!-- Room Letter Badge -->
+        <TextView
+            android:id="@+id/tvRoomBadgeChar"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:gravity="center"
+            android:text="B"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="@color/badge_text"
+            android:background="@drawable/bg_badge_pill"
+            android:layout_marginEnd="12dp" />
+
+        <!-- Room Name & Metadata -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="3dp">
+
+                <TextView
+                    android:id="@+id/tvRoomName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Bedroom"
+                    android:textSize="15.5sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"
+                    android:layout_marginEnd="8dp" />
+
+                <TextView
+                    android:id="@+id/tvRoomQualityBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Strong · 20 scans"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/bg_badge_pill"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="2dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvRoomMeta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="4 Wi-Fi APs · (2.5m, 3.5m)"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary" />
+        </LinearLayout>
+
+        <!-- Actions -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRoomRescan"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:text="🔄"
+            android:textSize="14sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:contentDescription="Re-scan Room"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/btn_tonal_bg"
+            android:textColor="@color/btn_tonal_text"
+            android:layout_marginEnd="6dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRoomDelete"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:text="🗑️"
+            android:textSize="14sp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:contentDescription="Delete Room"
+            app:cornerRadius="10dp"
+            app:backgroundTint="@color/status_error_bg"
+            android:textColor="@color/status_error" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

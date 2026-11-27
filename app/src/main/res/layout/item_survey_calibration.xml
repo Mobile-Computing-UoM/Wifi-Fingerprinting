@@ -82,7 +82,28 @@
             android:text="• Fuzzy 3D Matrix Acc: 80.0% (12/15)"
             android:textSize="12sp"
             android:textColor="@color/text_primary"
-            android:layout_marginBottom="4dp" />
+            android:layout_marginBottom="2dp" />
+
+        <TextView
+            android:id="@+id/tvCalibMamdaniAcc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Mamdani FIS Acc: 85.0%"
+            android:textSize="12sp"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="2dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvCalibHybridAcc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Smart Hybrid Acc: 90.0%"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_accent"
+            android:layout_marginBottom="4dp"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/tvCalibAutoBadge"

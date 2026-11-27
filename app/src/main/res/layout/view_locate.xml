@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/containerLocate"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:clipToPadding="false">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingTop="8dp"
+        android:paddingBottom="16dp">
+
+        <!-- Empty State Card (Shown when no rooms exist in active map) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardLocateEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/surface_card"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/stroke_subtle"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="24dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🏠"
+                    android:textSize="36sp"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="No rooms mapped yet"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"
+                    android:layout_marginBottom="4dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Add 2 or more rooms in the Rooms tab (or import a shared map) to start positioning."
+                    android:gravity="center"
+                    android:textSize="13sp"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginBottom="14dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnGoToRooms"
+                    android:layout_width="wrap_content"
+                    android:layout_height="44dp"
+                    android:text="Open Rooms Tab"
+                    android:textStyle="bold"
+                    app:cornerRadius="22dp"
+                    app:backgroundTint="@color/btn_tonal_bg"
+                    android:textColor="@color/btn_tonal_text" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Hero Location Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardHeroLocation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp"
+            app:cardBackgroundColor="@color/surface_card"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/stroke_subtle"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="26dp">
+
+                <!-- Radar / Progress Ring -->
+                <FrameLayout
+                    android:layout_width="96dp"
+                    android:layout_height="96dp"
+                    android:layout_marginBottom="14dp"
+                    android:background="@drawable/bg_hero_radar">
+
+                    <com.google.android.material.progressindicator.CircularProgressIndicator
+                        android:id="@+id/pbHeroScanning"
+                        android:layout_width="96dp"
+                        android:layout_height="96dp"
+                        android:layout_gravity="center"
+                        android:visibility="gone"
+                        app:indicatorSize="92dp"
+                        app:trackThickness="4dp"
+                        app:indicatorColor="@color/brand_primary"
+                        app:trackColor="@color/stroke_subtle" />
+
+                    <TextView
+                        android:id="@+id/tvHeroRadarIcon"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:text="📍"
+                        android:textSize="34sp" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/tvHeroStatusLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="READY TO LOCATE"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.08"
+                    android:textColor="@color/text_muted"
+                    android:layout_marginBottom="4dp" />
+
+                <TextView
+                    android:id="@+id/tvHeroRoomName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Tap Locate Me"
+                    android:textSize="28sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:textColor="@color/text_primary"
+                    android:layout_marginBottom="10dp" />
+
+                <TextView
+                    android:id="@+id/tvHeroConfidence"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Smart Hybrid Engine Ready"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/badge_text"
+                    android:background="@drawable/bg_badge_pill"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="5dp"
+                    android:layout_marginBottom="10dp" />
+
+                <TextView
+                    android:id="@+id/tvHeroSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Uses WKNN + Mamdani Fuzzy Logic"
+                    android:textSize="12.5sp"
+                    android:gravity="center"
+                    android:textColor="@color/text_secondary" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Top-3 Nearby Candidates Card -->
+        <LinearLayout
+            android:id="@+id/layoutTopCandidates"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TOP MATCHES"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.06"
+                android:textColor="@color/text_muted"
+                android:layout_marginStart="4dp"
+                android:layout_marginBottom="6dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/cardCand1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_card_tonal"
+                    android:padding="10dp"
+                    android:layout_marginEnd="6dp">
+
+                    <TextView
+                        android:id="@+id/tvCand1Name"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Room 1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:textSize="12.5sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:id="@+id/tvCand1Score"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="72%"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/brand_primary" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/cardCand2"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_card_tonal"
+                    android:padding="10dp"
+                    android:layout_marginHorizontal="3dp">
+
+                    <TextView
+                        android:id="@+id/tvCand2Name"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Room 2"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:textSize="12.5sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:id="@+id/tvCand2Score"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="18%"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/cardCand3"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_card_tonal"
+                    android:padding="10dp"
+                    android:layout_marginStart="6dp">
+
+                    <TextView
+                        android:id="@+id/tvCand3Name"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Room 3"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:textSize="12.5sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:id="@+id/tvCand3Score"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="10%"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Primary Locate CTA -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnHeroLocate"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="📍  Locate Me"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            app:cornerRadius="28dp"
+            app:backgroundTint="@color/btn_primary_bg"
+            android:textColor="@color/btn_primary_text"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Continuous Tracking + Quick Feedback Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="4dp">
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchContinuousLocate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Live Tracking"
+                android:textSize="13sp"
+                android:textColor="@color/text_secondary" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnQuickFeedback"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Not right? Correct room"
+                android:textSize="12.5sp"
+                android:textColor="@color/brand_primary"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

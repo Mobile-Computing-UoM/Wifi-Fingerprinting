@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/containerRooms"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:visibility="gone">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Map Source & Share/Import Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            app:cardBackgroundColor="@color/surface_card"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/stroke_subtle"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <RadioGroup
+                    android:id="@+id/rgRoomsMapSource"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp">
+
+                    <RadioButton
+                        android:id="@+id/rbRoomsSourceLocal"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:text="📱 My Map"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"
+                        android:checked="true" />
+
+                    <RadioButton
+                        android:id="@+id/rbRoomsSourceImported"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:text="📥 Imported Map"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary" />
+                </RadioGroup>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRoomsShare"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:text="📤 Share Map"
+                        android:textSize="12.5sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        app:cornerRadius="10dp"
+                        app:backgroundTint="@color/btn_tonal_bg"
+                        android:textColor="@color/btn_tonal_text"
+                        android:layout_marginEnd="6dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRoomsImport"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:text="📥 Import Ref"
+                        android:textSize="12.5sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        app:cornerRadius="10dp"
+                        app:backgroundTint="@color/btn_tonal_bg"
+                        android:textColor="@color/btn_tonal_text"
+                        android:layout_marginStart="6dp" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Conditional Calibration Prompt Banner -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardCalibBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/status_warning_bg"
+            app:cardCornerRadius="14dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/status_warning"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:id="@+id/tvCalibBannerText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Imported map isn't calibrated for this phone yet."
+                    android:textSize="12.5sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/status_warning"
+                    android:layout_marginEnd="10dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRoomsCalibrate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="38dp"
+                    android:text="🎯 Calibrate"
+                    android:textSize="12sp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    app:cornerRadius="10dp"
+                    app:backgroundTint="@color/btn_purple_bg"
+                    android:textColor="@color/btn_purple_text" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Active Survey Progress Banner -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardRoomsSurveyProgress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/surface_tonal"
+            app:cardCornerRadius="14dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/brand_primary"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+
+                    <TextView
+                        android:id="@+id/tvRoomsSurveyStatus"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Scanning Room..."
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_accent" />
+
+                    <TextView
+                        android:id="@+id/tvRoomsSurveyPercent"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0/20"
+                        android:textSize="12.5sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/brand_primary"
+                        android:layout_marginEnd="8dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRoomsStopSurvey"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:text="Stop"
+                        android:textSize="11.5sp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:paddingHorizontal="10dp"
+                        app:cornerRadius="8dp"
+                        app:backgroundTint="@color/btn_danger_bg"
+                        android:textColor="@color/btn_danger_text" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/pbRoomsSurvey"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="8dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressTint="@color/brand_primary"
+                    android:progressBackgroundTint="@color/stroke_subtle" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Empty Rooms Prompt -->
+        <TextView
+            android:id="@+id/tvEmptyRooms"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No rooms saved yet.\nTap '+ Add Room' below while standing in a room to map its Wi-Fi signals."
+            android:gravity="center"
+            android:textSize="13.5sp"
+            android:textColor="@color/text_muted"
+            android:padding="32dp"
+            android:visibility="gone" />
+
+        <!-- Rooms RecyclerView -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvRooms"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingBottom="84dp" />
+    </LinearLayout>
+
+    <!-- Add Room FAB -->
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/fabAddRoom"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="8dp"
+        android:text="Add Room"
+        android:textStyle="bold"
+        app:icon="@android:drawable/ic_input_add"
+        app:backgroundTint="@color/btn_primary_bg"
+        app:iconTint="@color/btn_primary_text"
+        android:textColor="@color/btn_primary_text" />
+</FrameLayout>

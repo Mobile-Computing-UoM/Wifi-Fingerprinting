@@ -56,6 +56,7 @@ import com.example.wififingerprint.feedback.FeedbackCsv
 import com.example.wififingerprint.feedback.FeedbackHistoryRecord
 import com.example.wififingerprint.strategy.FingerprintSource
 import com.example.wififingerprint.strategy.FuzzyMatrixStrategy
+import com.example.wififingerprint.strategy.HybridEnsembleStrategy
 import com.example.wififingerprint.strategy.KnnStrategy
 import com.example.wififingerprint.strategy.LiveQueryScan
 import com.example.wififingerprint.strategy.LocalizationResult
@@ -66,6 +67,10 @@ import com.example.wififingerprint.strategy.RawSurveySpot
 import com.example.wififingerprint.strategy.ScanMode
 import com.example.wififingerprint.strategy.StrategyMode
 import com.example.wififingerprint.strategy.TemporalScanBuffer
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import com.google.android.material.tabs.TabLayout
 import com.example.wififingerprint.experiment.ExperimentConfig
 import com.example.wififingerprint.experiment.ExperimentCsvManager
@@ -90,6 +95,89 @@ data class Fingerprint(
 )
 
 class MainActivity : AppCompatActivity() {
+    // Consumer Navigation & Top Header
+    private lateinit var bottomNav: BottomNavigationView
+    private lateinit var containerLocate: View
+    private lateinit var containerRooms: View
+    private lateinit var containerSettings: View
+    private lateinit var containerLab: View
+    private lateinit var tvHeaderSubtitle: TextView
+    private lateinit var tvHeaderMapPill: TextView
+
+    // Consumer Locate Views
+    private lateinit var cardLocateEmpty: View
+    private lateinit var btnGoToRooms: Button
+    private lateinit var cardHeroLocation: View
+    private lateinit var pbHeroScanning: CircularProgressIndicator
+    private lateinit var tvHeroRadarIcon: TextView
+    private lateinit var tvHeroStatusLabel: TextView
+    private lateinit var tvHeroRoomName: TextView
+    private lateinit var tvHeroConfidence: TextView
+    private lateinit var tvHeroSubtitle: TextView
+    private lateinit var layoutTopCandidates: View
+    private lateinit var cardCand1: View
+    private lateinit var tvCand1Name: TextView
+    private lateinit var tvCand1Score: TextView
+    private lateinit var cardCand2: View
+    private lateinit var tvCand2Name: TextView
+    private lateinit var tvCand2Score: TextView
+    private lateinit var cardCand3: View
+    private lateinit var tvCand3Name: TextView
+    private lateinit var tvCand3Score: TextView
+    private lateinit var btnHeroLocate: Button
+    private lateinit var switchContinuousLocate: MaterialSwitch
+    private lateinit var btnQuickFeedback: Button
+
+    // Consumer Rooms Views
+    private lateinit var rgRoomsMapSource: RadioGroup
+    private lateinit var rbRoomsSourceLocal: RadioButton
+    private lateinit var rbRoomsSourceImported: RadioButton
+    private lateinit var btnRoomsShare: Button
+    private lateinit var btnRoomsImport: Button
+    private lateinit var cardCalibBanner: View
+    private lateinit var tvCalibBannerText: TextView
+    private lateinit var btnRoomsCalibrate: Button
+    private lateinit var cardRoomsSurveyProgress: View
+    private lateinit var tvRoomsSurveyStatus: TextView
+    private lateinit var tvRoomsSurveyPercent: TextView
+    private lateinit var pbRoomsSurvey: ProgressBar
+    private lateinit var btnRoomsStopSurvey: Button
+    private lateinit var tvEmptyRooms: TextView
+    private lateinit var rvRooms: RecyclerView
+    private lateinit var fabAddRoom: ExtendedFloatingActionButton
+    private var roomCardAdapter: RoomCardAdapter? = null
+
+    // Consumer Settings Views
+    private lateinit var rgUserEngine: RadioGroup
+    private lateinit var rbUserEngineHybrid: RadioButton
+    private lateinit var rbUserEngineKnn: RadioButton
+    private lateinit var rbUserEngineMamdani: RadioButton
+    private lateinit var btnUserThemeSwitch: Button
+    private lateinit var btnUserCalibrate: Button
+    private lateinit var btnUserClearMap: Button
+    private lateinit var switchSurveyTestSplit: MaterialSwitch
+    private lateinit var switchLabMode: MaterialSwitch
+
+    // Lab Mode State & Continuous Tracking
+    private var labModeEnabled = false
+    private var isSurveyTestSplitEnabled = true
+    private var isContinuousTracking = false
+    private var isUpdatingUiControls = false
+    private val continuousLocateRunnable = Runnable {
+        if (isContinuousTracking && !isScanningActive && containerLocate.visibility == View.VISIBLE) {
+            startLocateScan(isBackgroundContinuous = true)
+        }
+    }
+
+    // Last Locate Snapshot for Quick Feedback
+    private var lastLocateQuery: LiveQueryScan? = null
+    private var lastResKnn: LocalizationResult? = null
+    private var lastResFuzzy: LocalizationResult? = null
+    private var lastResPattern: LocalizationResult? = null
+    private var lastResMamdani: LocalizationResult? = null
+    private var lastResHybrid: LocalizationResult? = null
+    private var lastCalibOffsetDb: Double? = null
+
     private lateinit var tabLayout: TabLayout
     private lateinit var layoutScannerView: LinearLayout
     private lateinit var layoutSurveyAccView: LinearLayout
@@ -170,11 +258,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Strategy Pattern instances
-    private var selectedStrategyMode: StrategyMode = StrategyMode.BOTH
-    private val knnStrategy = KnnStrategy(1)
+    private var selectedStrategyMode: StrategyMode = StrategyMode.HYBRID
+    private val knnStrategy = KnnStrategy(3)
     private val fuzzyMatrixStrategy = FuzzyMatrixStrategy()
     private val patternStrategy = PatternStrategy(minSharedAps = 2)
     private val mamdaniFuzzyStrategy = MamdaniFuzzyStrategy()
+    private val hybridStrategy = HybridEnsembleStrategy(knnStrategy, mamdaniFuzzyStrategy, patternStrategy)
 
     // Dynamic WakeLock to keep screen on ONLY while surveying
     private var wakeLock: PowerManager.WakeLock? = null
@@ -215,15 +304,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Configurable parameters (persisted in SharedPreferences)
-    private var surveySampleCount = 50    // Scans per survey spot
-    private var locateSampleCount = 10    // Scans for locate
-    private var knnK = 1                 // k for k-NN matching
-    private var activeTargetSamples = 50 // Current active target
-    private var testSplitPercent = 30    // Default 30% held-out test split
+    private var surveySampleCount = 10    // Scans per survey spot (default 10: 70/30 = 7 build / 3 test)
+    private var locateSampleCount = 5     // Scans for locate (fast with temporal median)
+    private var knnK = 3                  // Optimal k=3 from varying_k_summary.csv
+    private var activeTargetSamples = 10  // Current active target
+    private var testSplitPercent = 30     // 30% held-out test split when survey test split is enabled
     private var isAutoCalibrationEnabled = false
-    private var autoCalibTarget = 80     // Target accuracy %
+    private var autoCalibTarget = 80      // Target accuracy %
     private var autoCalibMaxExtraScans = 0 // 0 = Unlimited, or positive integer for max extra scans
-    private var autoCalibStrategy = "FUZZY_MATRIX" // "FUZZY_MATRIX" or "KNN"
+    private var autoCalibStrategy = "SELECTED" // "SELECTED", "HYBRID", "KNN", "MAMDANI", "FUZZY_MATRIX", or "PATTERN"
 
     private var currentSampleCount = 0
     private var currentScanMode: ScanMode = ScanMode.SURVEY
@@ -247,24 +336,26 @@ class MainActivity : AppCompatActivity() {
     private fun rebuildStrategyModels() {
         val activeSpots = getActiveSurveyDatabase()
         knnStrategy.k = knnK
-        knnStrategy.buildModel(activeSpots)
+        hybridStrategy.buildModel(activeSpots)
         fuzzyMatrixStrategy.buildModel(activeSpots)
-        patternStrategy.buildModel(activeSpots)
-        mamdaniFuzzyStrategy.buildModel(activeSpots)
     }
 
     private fun loadSettings() {
         val prefs = getSharedPreferences("FingerprintSettings", Context.MODE_PRIVATE)
-        surveySampleCount = prefs.getInt("survey_count", 50)
-        locateSampleCount = prefs.getInt("locate_count", 10)
-        knnK = prefs.getInt("knn_k", 1)
+        labModeEnabled = prefs.getBoolean("lab_mode_enabled", false)
+        isSurveyTestSplitEnabled = prefs.getBoolean("survey_test_split_enabled", true)
+        surveySampleCount = prefs.getInt("survey_count", 10)
+        locateSampleCount = prefs.getInt("locate_count", 5)
+        knnK = prefs.getInt("knn_k", 3)
         testSplitPercent = prefs.getInt("test_split_percent", 30)
         isAutoCalibrationEnabled = prefs.getBoolean("auto_calib_enabled", false)
         autoCalibTarget = prefs.getInt("auto_calib_target", 80)
         autoCalibMaxExtraScans = prefs.getInt("auto_calib_max_extra", 0)
-        autoCalibStrategy = prefs.getString("auto_calib_strategy", "FUZZY_MATRIX") ?: "FUZZY_MATRIX"
-        selectedStrategyMode = StrategyMode.fromKey(prefs.getString("strategy_mode", StrategyMode.BOTH.key))
+        autoCalibStrategy = prefs.getString("auto_calib_strategy", "SELECTED") ?: "SELECTED"
+        selectedStrategyMode = StrategyMode.fromKey(prefs.getString("strategy_mode", StrategyMode.HYBRID.key))
         knnStrategy.k = knnK
+        updateLabModeVisibility(labModeEnabled)
+        syncUserSettingsUi()
         updateSettingsSummary()
     }
 
@@ -303,6 +394,7 @@ class MainActivity : AppCompatActivity() {
             putString("auto_calib_strategy", calibStrat)
             apply()
         }
+        syncUserSettingsUi()
         updateSettingsSummary()
         if (!isScanningActive) {
             updateProgressDisplay(0, surveySampleCount, "Survey Progress")
@@ -319,28 +411,24 @@ class MainActivity : AppCompatActivity() {
         val percent = if (total > 0) (current * 100) / total else 0
         progressBar.progress = percent
         tvProgressText.text = "$current/$total ($percent% completed)"
+
+        if (::pbRoomsSurvey.isInitialized && currentScanMode == ScanMode.SURVEY && isScanningActive) {
+            cardRoomsSurveyProgress.visibility = View.VISIBLE
+            tvRoomsSurveyStatus.text = label ?: "Scanning room..."
+            tvRoomsSurveyPercent.text = "$current/$total ($percent%)"
+            pbRoomsSurvey.progress = percent
+        }
     }
 
     private fun updateSettingsSummary() {
         val stratShort = when (selectedStrategyMode) {
+            StrategyMode.HYBRID -> "Smart Hybrid (WKNN + Mamdani)"
             StrategyMode.KNN -> "Scan k-NN (k=$knnK)"
             StrategyMode.FUZZY_MATRIX -> "Fuzzy Matrix"
             StrategyMode.PATTERN -> "Cross-Device Pattern"
             StrategyMode.MAMDANI -> "Mamdani FIS"
             StrategyMode.BOTH -> "k-NN vs Fuzzy Matrix"
             StrategyMode.ALL -> "All 4 (Side-by-Side)"
-        }
-        val calibInfo = if (isAutoCalibrationEnabled) {
-            val calibStrat = when (autoCalibStrategy) {
-                "FUZZY_MATRIX" -> "Fuzzy Matrix"
-                "PATTERN" -> "Pattern"
-                "MAMDANI" -> "Mamdani FIS"
-                else -> "k-NN"
-            }
-            val limitDesc = if (autoCalibMaxExtraScans > 0) "+$autoCalibMaxExtraScans max" else "unlimited"
-            "ON (≥$autoCalibTarget% via $calibStrat, $limitDesc)"
-        } else {
-            "OFF"
         }
         val sourceDesc = if (activeMapSource == FingerprintSource.IMPORTED) {
             val dev = importedMetadata?.model ?: "Imported Ref"
@@ -356,10 +444,25 @@ class MainActivity : AppCompatActivity() {
         } else {
             "Map: 📱 Local (${surveyDatabase.size} spots)"
         }
-        tvSettingsSummary.text = "$sourceDesc | Survey=$surveySampleCount | Locate=$locateSampleCount | Mode: $stratShort"
+        val splitTag = if (isSurveyTestSplitEnabled) "${100 - testSplitPercent}/$testSplitPercent" else "100/0"
+        tvSettingsSummary.text = "$sourceDesc | Survey=$surveySampleCount ($splitTag) | Locate=$locateSampleCount | Mode: $stratShort"
+
+        // Update minimal consumer top bar
+        if (::tvHeaderSubtitle.isInitialized) {
+            tvHeaderSubtitle.text = stratShort
+        }
+        if (::tvHeaderMapPill.isInitialized) {
+            val count = getActiveSurveyDatabase().size
+            tvHeaderMapPill.text = if (activeMapSource == FingerprintSource.IMPORTED) {
+                "📥 Imported · $count rooms"
+            } else {
+                "📱 My Map · $count rooms"
+            }
+        }
 
         // Dynamically update locate button label
         btnLocate.text = when (selectedStrategyMode) {
+            StrategyMode.HYBRID -> "2. Where Am I? (Smart Hybrid)"
             StrategyMode.KNN -> "2. Where Am I? (Scan k-NN)"
             StrategyMode.FUZZY_MATRIX -> "2. Where Am I? (Fuzzy Matrix)"
             StrategyMode.PATTERN -> "2. Where Am I? (Pattern Match)"
@@ -521,6 +624,7 @@ class MainActivity : AppCompatActivity() {
         val rbAutoPattern = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibPattern)
         val rbAutoMamdani = dialogView.findViewById<RadioButton>(R.id.rbAutoCalibMamdani)
 
+        val rbHybrid = dialogView.findViewById<RadioButton>(R.id.rbStrategyHybrid)
         val rbBoth = dialogView.findViewById<RadioButton>(R.id.rbStrategyBoth)
         val rbKnn = dialogView.findViewById<RadioButton>(R.id.rbStrategyKnn)
         val rbFuzzy = dialogView.findViewById<RadioButton>(R.id.rbStrategyFuzzy)
@@ -549,6 +653,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         when (selectedStrategyMode) {
+            StrategyMode.HYBRID -> rbHybrid?.isChecked = true
             StrategyMode.BOTH -> rbBoth.isChecked = true
             StrategyMode.KNN -> rbKnn.isChecked = true
             StrategyMode.FUZZY_MATRIX -> rbFuzzy.isChecked = true
@@ -564,7 +669,7 @@ class MainActivity : AppCompatActivity() {
                 val sCount = editSurvey.text.toString().toIntOrNull() ?: surveySampleCount
                 val lCount = editLocate.text.toString().toIntOrNull() ?: locateSampleCount
                 val kVal = editKnn.text.toString().toIntOrNull() ?: knnK
-                val splitVal = (editTestSplit.text.toString().toIntOrNull() ?: testSplitPercent).coerceIn(10, 50)
+                val splitVal = (editTestSplit.text.toString().toIntOrNull() ?: testSplitPercent).coerceIn(0, 50)
                 val targetAcc = (editTargetAcc.text.toString().toIntOrNull() ?: autoCalibTarget).coerceIn(50, 100)
                 val maxLimitVal = (editMaxLimit.text.toString().toIntOrNull() ?: autoCalibMaxExtraScans).coerceAtLeast(0)
                 val calibStrat = when {
@@ -575,12 +680,14 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val chosenMode = when {
+                    rbHybrid?.isChecked == true -> StrategyMode.HYBRID
                     rbKnn.isChecked -> StrategyMode.KNN
                     rbFuzzy.isChecked -> StrategyMode.FUZZY_MATRIX
                     rbPattern?.isChecked == true -> StrategyMode.PATTERN
                     rbMamdani?.isChecked == true -> StrategyMode.MAMDANI
                     rbAll?.isChecked == true -> StrategyMode.ALL
-                    else -> StrategyMode.BOTH
+                    rbBoth.isChecked -> StrategyMode.BOTH
+                    else -> StrategyMode.HYBRID
                 }
 
                 if (sCount <= 0 || lCount <= 0 || kVal <= 0) {
@@ -617,7 +724,8 @@ class MainActivity : AppCompatActivity() {
             ScanMode.SURVEY -> {
                 val spot = editSpotName.text.toString().trim()
                 val totalScans = scanSnapshots.size
-                val testScansCount = if (totalScans >= 2) maxOf(1, (totalScans * testSplitPercent) / 100) else 0
+                val effectiveSplit = if (isSurveyTestSplitEnabled) testSplitPercent.coerceIn(10, 50) else 0
+                val testScansCount = if (effectiveSplit > 0 && totalScans >= 2) maxOf(1, (totalScans * effectiveSplit) / 100) else 0
                 val trainScansCount = maxOf(1, totalScans - testScansCount)
 
                 val trainSnapshots = scanSnapshots.take(trainScansCount)
@@ -639,7 +747,9 @@ class MainActivity : AppCompatActivity() {
                         avgRssi = readings.average().roundToInt()
                     )
                 }
-                val candidateSpot = RawSurveySpot(spot, trainMeasurements, trainScansCount)
+                val coordX = editSurveyCoordX.text.toString().toDoubleOrNull() ?: 0.0
+                val coordY = editSurveyCoordY.text.toString().toDoubleOrNull() ?: 0.0
+                val candidateSpot = RawSurveySpot(spot, trainMeasurements, trainScansCount, coordX, coordY)
                 val candidateDatabase = surveyDatabase.filter { !it.spotLabel.equals(spot, ignoreCase = true) } + candidateSpot
 
                 val evalKnnStrategy = KnnStrategy(knnK)
@@ -650,33 +760,49 @@ class MainActivity : AppCompatActivity() {
                 evalPatternStrategy.buildModel(candidateDatabase)
                 val evalMamdaniStrategy = MamdaniFuzzyStrategy()
                 evalMamdaniStrategy.buildModel(candidateDatabase)
+                val evalHybridStrategy = HybridEnsembleStrategy(evalKnnStrategy, evalMamdaniStrategy, evalPatternStrategy)
 
                 var knnCorrect = 0
                 var fuzzyCorrect = 0
                 var patternCorrect = 0
                 var mamdaniCorrect = 0
+                var hybridCorrect = 0
                 for (testScan in testSnapshots) {
                     val query = LiveQueryScan(testScan, bssidToSsidMap)
                     val knnRes = evalKnnStrategy.infer(query)
                     val fuzzyRes = evalFuzzyStrategy.infer(query)
                     val patternRes = evalPatternStrategy.infer(query)
                     val mamdaniRes = evalMamdaniStrategy.infer(query)
+                    val hybridRes = evalHybridStrategy.infer(query)
 
-                    if (knnRes.predictedSpot == spot) knnCorrect++
-                    if (fuzzyRes.predictedSpot == spot) fuzzyCorrect++
-                    if (patternRes.predictedSpot == spot) patternCorrect++
-                    if (mamdaniRes.predictedSpot == spot) mamdaniCorrect++
+                    if (knnRes.predictedSpot.equals(spot, ignoreCase = true)) knnCorrect++
+                    if (fuzzyRes.predictedSpot.equals(spot, ignoreCase = true)) fuzzyCorrect++
+                    if (patternRes.predictedSpot.equals(spot, ignoreCase = true)) patternCorrect++
+                    if (mamdaniRes.predictedSpot.equals(spot, ignoreCase = true)) mamdaniCorrect++
+                    if (hybridRes.predictedSpot.equals(spot, ignoreCase = true)) hybridCorrect++
                 }
 
                 val knnAcc = if (testScansCount > 0) (knnCorrect.toDouble() / testScansCount) * 100.0 else 100.0
                 val fuzzyAcc = if (testScansCount > 0) (fuzzyCorrect.toDouble() / testScansCount) * 100.0 else 100.0
                 val patternAcc = if (testScansCount > 0) (patternCorrect.toDouble() / testScansCount) * 100.0 else 100.0
                 val mamdaniAcc = if (testScansCount > 0) (mamdaniCorrect.toDouble() / testScansCount) * 100.0 else 100.0
+                val hybridAcc = if (testScansCount > 0) (hybridCorrect.toDouble() / testScansCount) * 100.0 else 100.0
+
+                val (selectedLabel, selectedAcc) = when (selectedStrategyMode) {
+                    StrategyMode.KNN -> Pair("WKNN", knnAcc)
+                    StrategyMode.MAMDANI -> Pair("Mamdani FIS", mamdaniAcc)
+                    StrategyMode.FUZZY_MATRIX -> Pair("Fuzzy Matrix", fuzzyAcc)
+                    StrategyMode.PATTERN -> Pair("Pattern", patternAcc)
+                    else -> Pair("Smart Hybrid", hybridAcc)
+                }
+
                 val benchmarkAcc = when (autoCalibStrategy) {
+                    "HYBRID" -> hybridAcc
+                    "KNN" -> knnAcc
+                    "MAMDANI" -> mamdaniAcc
                     "FUZZY_MATRIX" -> fuzzyAcc
                     "PATTERN" -> patternAcc
-                    "MAMDANI" -> mamdaniAcc
-                    else -> knnAcc
+                    else -> selectedAcc
                 }
 
                 // Auto-Calibration condition check (skipped if user explicitly requested stop)
@@ -691,10 +817,12 @@ class MainActivity : AppCompatActivity() {
                     val nextTarget = activeTargetSamples + 5
                     activeTargetSamples = nextTarget
                     val stratName = when (autoCalibStrategy) {
+                        "HYBRID" -> "Smart Hybrid"
+                        "KNN" -> "WKNN (k=$knnK)"
+                        "MAMDANI" -> "Mamdani FIS"
                         "FUZZY_MATRIX" -> "Fuzzy Matrix"
                         "PATTERN" -> "Cross-Device Pattern"
-                        "MAMDANI" -> "Mamdani FIS"
-                        else -> "Centroid k-NN"
+                        else -> selectedLabel
                     }
                     val limitNotice = if (autoCalibMaxExtraScans > 0) " (Max limit: +$autoCalibMaxExtraScans extra scans)" else " (Unlimited mode)"
                     log("\n⚠️ Auto-Calibration: $stratName accuracy is ${"%.1f".format(benchmarkAcc)}% (< target $autoCalibTarget%).\n")
@@ -718,8 +846,6 @@ class MainActivity : AppCompatActivity() {
                 val rawMeasurements = processedMeasurements.map {
                     RawApMeasurement(it.bssid, it.ssid, it.rawReadings, it.avgRssi)
                 }
-                val coordX = editSurveyCoordX.text.toString().toDoubleOrNull() ?: 0.0
-                val coordY = editSurveyCoordY.text.toString().toDoubleOrNull() ?: 0.0
                 val spotRecord = RawSurveySpot(spot, rawMeasurements, activeTargetSamples, coordX, coordY)
                 val existingIdx = surveyDatabase.indexOfFirst { it.spotLabel.equals(spot, ignoreCase = true) }
                 if (existingIdx >= 0) {
@@ -767,22 +893,50 @@ class MainActivity : AppCompatActivity() {
                     knnAccuracy = knnAcc,
                     fuzzyAccuracy = fuzzyAcc,
                     autoCalibrated = autoCalibStatus,
-                    rawCsvLine = "$timestamp,\"$isoTime\",\"$spot\",$totalScans,$trainScansCount,$testScansCount,${"%.1f".format(knnAcc)},${"%.1f".format(fuzzyAcc)},\"$autoCalibStatus\""
+                    rawCsvLine = "$timestamp,\"$isoTime\",\"$spot\",$totalScans,$trainScansCount,$testScansCount,${"%.1f".format(Locale.US, knnAcc)},${"%.1f".format(Locale.US, fuzzyAcc)},\"$autoCalibStatus\",${"%.1f".format(Locale.US, mamdaniAcc)},${"%.1f".format(Locale.US, hybridAcc)},\"$selectedLabel\"",
+                    mamdaniAccuracy = mamdaniAcc,
+                    hybridAccuracy = hybridAcc,
+                    selectedEngine = selectedLabel
                 )
-                saveSurveyCalibrationToCsv(calibRecord)
+                if (testScansCount > 0) {
+                    saveSurveyCalibrationToCsv(calibRecord)
+                }
 
                 log("\n========================================\n")
                 log("📊 HELD-OUT VALIDATION RESULTS for '$spot'\n")
                 log("========================================\n")
                 log("• Total Scans: $totalScans ($trainScansCount Build / $testScansCount Held-Out Test)\n")
-                log("• Strategy 1 (Centroid k-NN):   ${"%.1f".format(knnAcc)}% ($knnCorrect/$testScansCount correct)\n")
-                log("• Strategy 2 (Fuzzy Matrix):    ${"%.1f".format(fuzzyAcc)}% ($fuzzyCorrect/$testScansCount correct)\n")
-                log("• Auto-Calibration:             $autoCalibStatus\n")
+                log("• Active Engine ($selectedLabel): ${"%.1f".format(Locale.US, selectedAcc)}%\n")
+                log("• WKNN (k=$knnK):           ${"%.1f".format(Locale.US, knnAcc)}% ($knnCorrect/$testScansCount correct)\n")
+                log("• Mamdani FIS:            ${"%.1f".format(Locale.US, mamdaniAcc)}% ($mamdaniCorrect/$testScansCount correct)\n")
+                log("• Smart Hybrid:           ${"%.1f".format(Locale.US, hybridAcc)}% ($hybridCorrect/$testScansCount correct)\n")
+                log("• Fuzzy Matrix (Lab):     ${"%.1f".format(Locale.US, fuzzyAcc)}% ($fuzzyCorrect/$testScansCount correct)\n")
+                log("• Auto-Calibration:       $autoCalibStatus\n")
                 log("💾 Saved spot to CSV & validation history to survey_calibration_history.csv\n")
                 log("Total spots in memory: ${surveyDatabase.size}\n")
                 log("========================================\n\n")
 
                 refreshSurveyAccView()
+                refreshRoomsView()
+                Toast.makeText(this, "Saved room '$spot' ($activeTargetSamples scans)", Toast.LENGTH_SHORT).show()
+
+                if (testScansCount > 0 && !userRequestedStop) {
+                    val summaryText = StringBuilder()
+                    summaryText.append("Split: $totalScans scans ($trainScansCount build / $testScansCount held-out test)\n\n")
+                    summaryText.append("Active Engine ($selectedLabel): ${"%.1f".format(Locale.US, selectedAcc)}%\n\n")
+                    summaryText.append("3-Way Held-Out Comparison:\n")
+                    summaryText.append("• WKNN (k=$knnK): ${"%.1f".format(Locale.US, knnAcc)}% ($knnCorrect/$testScansCount)\n")
+                    summaryText.append("• Mamdani FIS: ${"%.1f".format(Locale.US, mamdaniAcc)}% ($mamdaniCorrect/$testScansCount)\n")
+                    summaryText.append("• Smart Hybrid: ${"%.1f".format(Locale.US, hybridAcc)}% ($hybridCorrect/$testScansCount)")
+                    if (surveyDatabase.size < 2) {
+                        summaryText.append("\n\nℹ️ Note: Only 1 room is mapped so far — add a 2nd room for cross-room validation.")
+                    }
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("📊 Survey Validation: '$spot'")
+                        .setMessage(summaryText.toString())
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
             }
             ScanMode.CALIBRATE -> {
                 updateProgressDisplay(activeTargetSamples, activeTargetSamples, "Calibration Completed")
@@ -822,7 +976,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         // FINISHED: Unlock scanning state and re-enable buttons
+        val completedMode = currentScanMode
         unlockControlsAfterScan()
+        if (completedMode == ScanMode.LOCATE && isContinuousTracking && containerLocate.visibility == View.VISIBLE) {
+            scanHandler.removeCallbacks(continuousLocateRunnable)
+            scanHandler.postDelayed(continuousLocateRunnable, 4000L)
+        }
     }
 
     private fun unlockControlsAfterScan() {
@@ -844,6 +1003,21 @@ class MainActivity : AppCompatActivity() {
         btnStopSurvey.visibility = View.GONE
         userRequestedStop = false
         releaseScreenWakeLock()
+
+        // Reset Consumer Locate & Rooms scanning UI
+        if (::pbHeroScanning.isInitialized) {
+            pbHeroScanning.visibility = View.GONE
+            pbHeroScanning.isIndeterminate = false
+            tvHeroRadarIcon.text = "📍"
+            btnHeroLocate.text = "📍  Locate Me"
+            refreshLocateEmptyState()
+        }
+        if (::cardRoomsSurveyProgress.isInitialized) {
+            cardRoomsSurveyProgress.visibility = View.GONE
+            if (activeMapSource == FingerprintSource.LOCAL) {
+                fabAddRoom.show()
+            }
+        }
     }
 
     /**
@@ -864,41 +1038,61 @@ class MainActivity : AppCompatActivity() {
         // If using an imported reference map and calibration exists, apply offset to k-NN & Fuzzy
         val refId = if (activeMapSource == FingerprintSource.IMPORTED) importedMetadata?.deviceId ?: "" else ""
         val calib = if (refId.isNotEmpty()) CalibrationStore.getCalibration(this, refId) else null
+        hybridStrategy.useCrossDeviceBoost = (activeMapSource == FingerprintSource.IMPORTED && calib == null)
 
         val queryForCentroid = if (calib != null) {
             val sign = if (calib.offsetDb >= 0) "+" else ""
-            log("🎯 Applying antenna offset ($sign${"%.1f".format(Locale.US, calib.offsetDb)} dB) to k-NN & Fuzzy query...\n")
+            log("🎯 Applying antenna offset ($sign${"%.1f".format(Locale.US, calib.offsetDb)} dB) to WKNN & Mamdani query...\n")
             OffsetCalibrator.apply(query, calib.offsetDb)
         } else {
             query
         }
 
-        // Evaluate strategies: k-NN, Fuzzy Matrix, and Mamdani FIS use corrected query; Pattern always uses raw query
+        // Evaluate strategies: WKNN, Fuzzy Matrix, Mamdani FIS, and Hybrid use corrected query; Pattern uses raw query
         val resKnn = knnStrategy.infer(queryForCentroid)
         val resFuzzy = fuzzyMatrixStrategy.infer(queryForCentroid)
         val resPattern = patternStrategy.infer(query)
         val resMamdani = mamdaniFuzzyStrategy.infer(queryForCentroid)
+        val resHybrid = hybridStrategy.infer(queryForCentroid)
+
+        lastLocateQuery = query
+        lastResKnn = resKnn
+        lastResFuzzy = resFuzzy
+        lastResPattern = resPattern
+        lastResMamdani = resMamdani
+        lastResHybrid = resHybrid
+        lastCalibOffsetDb = calib?.offsetDb
 
         when (selectedStrategyMode) {
+            StrategyMode.HYBRID -> {
+                log(resHybrid.logOutput)
+                updateHeroLocationUi(resHybrid, hybridStrategy.lastEstimatedCoords, query.readings.size, isHybrid = true)
+            }
+
             StrategyMode.KNN -> {
                 log(resKnn.logOutput)
+                updateHeroLocationUi(resKnn, knnStrategy.lastEstimatedCoords, query.readings.size, isHybrid = false)
             }
 
             StrategyMode.FUZZY_MATRIX -> {
                 log(resFuzzy.logOutput)
+                updateHeroLocationUi(resFuzzy, null, query.readings.size, isHybrid = false)
             }
 
             StrategyMode.PATTERN -> {
                 log(resPattern.logOutput)
+                updateHeroLocationUi(resPattern, null, query.readings.size, isHybrid = false)
             }
 
             StrategyMode.MAMDANI -> {
                 log(resMamdani.logOutput)
+                updateHeroLocationUi(resMamdani, mamdaniFuzzyStrategy.lastEstimatedCoords, query.readings.size, isHybrid = false)
             }
 
             StrategyMode.BOTH -> {
                 log(resKnn.logOutput)
                 log(resFuzzy.logOutput)
+                updateHeroLocationUi(resKnn, knnStrategy.lastEstimatedCoords, query.readings.size, isHybrid = false)
 
                 // High-visibility side-by-side comparison summary
                 val knnWinner = resKnn.predictedSpot ?: "None"
@@ -929,6 +1123,7 @@ class MainActivity : AppCompatActivity() {
                 log(resFuzzy.logOutput)
                 log(resPattern.logOutput)
                 log(resMamdani.logOutput)
+                updateHeroLocationUi(resHybrid, hybridStrategy.lastEstimatedCoords, query.readings.size, isHybrid = true)
 
                 val knnWinner = resKnn.predictedSpot ?: "None"
                 val fuzzyWinner = resFuzzy.predictedSpot ?: "None"
@@ -960,8 +1155,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Prompt user for ground-truth accuracy feedback and persist outcome
-        showFeedbackDialog(query, resKnn, resFuzzy, resPattern, resMamdani, calib?.offsetDb)
+        // In Lab Mode, open validation feedback immediately; in Consumer Mode, show non-intrusive "Wrong room?" button
+        if (::containerLab.isInitialized && containerLab.visibility == View.VISIBLE) {
+            showFeedbackDialog(query, resKnn, resFuzzy, resPattern, resMamdani, calib?.offsetDb)
+        }
     }
 
     /**
@@ -991,7 +1188,9 @@ class MainActivity : AppCompatActivity() {
         spinnerActualSpot.adapter = adapter
 
         // Pre-select predicted spot according to active mode
+        val hybridWinner = lastResHybrid?.predictedSpot ?: knnWinner
         val preferredWinner = when (selectedStrategyMode) {
+            StrategyMode.HYBRID -> hybridWinner
             StrategyMode.PATTERN -> patternWinner
             StrategyMode.KNN -> knnWinner
             StrategyMode.MAMDANI -> mamdaniWinner
@@ -1288,10 +1487,17 @@ class MainActivity : AppCompatActivity() {
             val writer = FileWriter(file, true)
 
             if (isNewFile) {
-                writer.append("timestamp_ms,iso_time,spot_label,total_scans,train_scans,test_scans,knn_acc,fuzzy_acc,auto_calib\n")
+                writer.append("timestamp_ms,iso_time,spot_label,total_scans,train_scans,test_scans,knn_acc,fuzzy_acc,auto_calib,mamdani_acc,hybrid_acc,selected_engine\n")
             }
 
-            writer.append("${record.timestampMs},\"${record.isoTime}\",\"${record.spotLabel}\",${record.totalScans},${record.trainScans},${record.testScans},${"%.1f".format(record.knnAccuracy)},${"%.1f".format(record.fuzzyAccuracy)},\"${record.autoCalibrated}\"\n")
+            writer.append(
+                "${record.timestampMs},\"${record.isoTime}\",\"${record.spotLabel}\"," +
+                        "${record.totalScans},${record.trainScans},${record.testScans}," +
+                        "${"%.1f".format(Locale.US, record.knnAccuracy)},${"%.1f".format(Locale.US, record.fuzzyAccuracy)}," +
+                        "\"${record.autoCalibrated}\"," +
+                        "${"%.1f".format(Locale.US, record.mamdaniAccuracy)},${"%.1f".format(Locale.US, record.hybridAccuracy)}," +
+                        "\"${record.selectedEngine}\"\n"
+            )
             writer.flush()
             writer.close()
         } catch (e: Exception) {
@@ -1320,6 +1526,9 @@ class MainActivity : AppCompatActivity() {
                     val knnAcc = parts[6].toDoubleOrNull() ?: 0.0
                     val fuzzyAcc = parts[7].toDoubleOrNull() ?: 0.0
                     val autoCalib = parts[8]
+                    val mamdaniAcc = parts.getOrNull(9)?.toDoubleOrNull() ?: -1.0
+                    val hybridAcc = parts.getOrNull(10)?.toDoubleOrNull() ?: -1.0
+                    val selectedEngine = parts.getOrNull(11) ?: ""
 
                     records.add(
                         SurveyCalibrationRecord(
@@ -1332,7 +1541,10 @@ class MainActivity : AppCompatActivity() {
                             knnAccuracy = knnAcc,
                             fuzzyAccuracy = fuzzyAcc,
                             autoCalibrated = autoCalib,
-                            rawCsvLine = line
+                            rawCsvLine = line,
+                            mamdaniAccuracy = mamdaniAcc,
+                            hybridAccuracy = hybridAcc,
+                            selectedEngine = selectedEngine
                         )
                     )
                 }
@@ -1374,8 +1586,11 @@ class MainActivity : AppCompatActivity() {
             rvSurveyAccHistory.visibility = View.VISIBLE
             val records = surveyCalibAdapter?.records ?: emptyList()
             val avgKnn = records.map { it.knnAccuracy }.average()
-            val avgFuzzy = records.map { it.fuzzyAccuracy }.average()
-            tvSurveyAccStats.text = "Records: $count | Avg Centroid: ${"%.1f".format(avgKnn)}% | Avg Fuzzy: ${"%.1f".format(avgFuzzy)}%"
+            val mamdaniRecs = records.filter { it.mamdaniAccuracy >= 0.0 }
+            val hybridRecs = records.filter { it.hybridAccuracy >= 0.0 }
+            val mamText = if (mamdaniRecs.isNotEmpty()) " | FIS: ${"%.1f".format(Locale.US, mamdaniRecs.map { it.mamdaniAccuracy }.average())}%" else ""
+            val hybText = if (hybridRecs.isNotEmpty()) " | Hybrid: ${"%.1f".format(Locale.US, hybridRecs.map { it.hybridAccuracy }.average())}%" else ""
+            tvSurveyAccStats.text = "Records: $count | WKNN: ${"%.1f".format(Locale.US, avgKnn)}%$mamText$hybText"
         }
     }
 
@@ -1512,6 +1727,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             rebuildStrategyModels()
+            refreshRoomsView()
+            updateSettingsSummary()
             log("📂 Loaded ${surveyDatabase.size} saved spot(s) from ${file.name}\n")
             if (fuzzyMatrixStrategy.isModelLoaded()) {
                 log("📊 Fuzzy 3D Matrix built (${surveyDatabase.size} spots × ${fuzzyMatrixStrategy.getAllKnownAps().size} APs). Tap 'View Matrix' to inspect.\n")
@@ -1672,7 +1889,18 @@ class MainActivity : AppCompatActivity() {
             log("🔄 Switched to Local Device Survey Map (${surveyDatabase.size} spots)\n")
         }
 
+        isUpdatingUiControls = true
+        if (activeMapSource == FingerprintSource.IMPORTED) {
+            rbSourceImported.isChecked = true
+            if (::rbRoomsSourceImported.isInitialized) rbRoomsSourceImported.isChecked = true
+        } else {
+            rbSourceLocal.isChecked = true
+            if (::rbRoomsSourceLocal.isInitialized) rbRoomsSourceLocal.isChecked = true
+        }
+        isUpdatingUiControls = false
+
         rebuildStrategyModels()
+        refreshRoomsView()
         updateSettingsSummary()
     }
 
@@ -1737,10 +1965,24 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        val rootMain = findViewById<View>(R.id.main)
+        val bottomNavBar = findViewById<View>(R.id.bottomNav)
+        ViewCompat.setOnApplyWindowInsetsListener(rootMain) { v, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(insets.left, insets.top, insets.right, 0)
+            bottomNavBar.setPadding(
+                bottomNavBar.paddingLeft,
+                bottomNavBar.paddingTop,
+                bottomNavBar.paddingRight,
+                insets.bottom
+            )
+            WindowInsetsCompat.CONSUMED
+        }
+
         val btnThemeToggle = findViewById<Button>(R.id.btnThemeToggle)
         val isCurrentlyDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         btnThemeToggle.text = if (isCurrentlyDark) "☀️" else "🌙"
-        btnThemeToggle.setOnClickListener {
+        val toggleThemeAction = {
             val nextMode = if (isCurrentlyDark) {
                 AppCompatDelegate.MODE_NIGHT_NO
             } else {
@@ -1749,6 +1991,81 @@ class MainActivity : AppCompatActivity() {
             themePrefs.edit().putInt("theme_night_mode", nextMode).apply()
             AppCompatDelegate.setDefaultNightMode(nextMode)
         }
+        btnThemeToggle.setOnClickListener { toggleThemeAction() }
+
+        // Consumer Navigation & Top Header
+        bottomNav = findViewById(R.id.bottomNav)
+        containerLocate = findViewById(R.id.containerLocate)
+        containerRooms = findViewById(R.id.containerRooms)
+        containerSettings = findViewById(R.id.containerSettings)
+        containerLab = findViewById(R.id.containerLab)
+        tvHeaderSubtitle = findViewById(R.id.tvHeaderSubtitle)
+        tvHeaderMapPill = findViewById(R.id.tvHeaderMapPill)
+        tvHeaderMapPill.setOnClickListener {
+            bottomNav.selectedItemId = R.id.nav_rooms
+        }
+
+        // Consumer Locate Views
+        cardLocateEmpty = findViewById(R.id.cardLocateEmpty)
+        btnGoToRooms = findViewById(R.id.btnGoToRooms)
+        cardHeroLocation = findViewById(R.id.cardHeroLocation)
+        pbHeroScanning = findViewById(R.id.pbHeroScanning)
+        tvHeroRadarIcon = findViewById(R.id.tvHeroRadarIcon)
+        tvHeroStatusLabel = findViewById(R.id.tvHeroStatusLabel)
+        tvHeroRoomName = findViewById(R.id.tvHeroRoomName)
+        tvHeroConfidence = findViewById(R.id.tvHeroConfidence)
+        tvHeroSubtitle = findViewById(R.id.tvHeroSubtitle)
+        layoutTopCandidates = findViewById(R.id.layoutTopCandidates)
+        cardCand1 = findViewById(R.id.cardCand1)
+        tvCand1Name = findViewById(R.id.tvCand1Name)
+        tvCand1Score = findViewById(R.id.tvCand1Score)
+        cardCand2 = findViewById(R.id.cardCand2)
+        tvCand2Name = findViewById(R.id.tvCand2Name)
+        tvCand2Score = findViewById(R.id.tvCand2Score)
+        cardCand3 = findViewById(R.id.cardCand3)
+        tvCand3Name = findViewById(R.id.tvCand3Name)
+        tvCand3Score = findViewById(R.id.tvCand3Score)
+        btnHeroLocate = findViewById(R.id.btnHeroLocate)
+        switchContinuousLocate = findViewById(R.id.switchContinuousLocate)
+        btnQuickFeedback = findViewById(R.id.btnQuickFeedback)
+
+        // Consumer Rooms Views
+        rgRoomsMapSource = findViewById(R.id.rgRoomsMapSource)
+        rbRoomsSourceLocal = findViewById(R.id.rbRoomsSourceLocal)
+        rbRoomsSourceImported = findViewById(R.id.rbRoomsSourceImported)
+        btnRoomsShare = findViewById(R.id.btnRoomsShare)
+        btnRoomsImport = findViewById(R.id.btnRoomsImport)
+        cardCalibBanner = findViewById(R.id.cardCalibBanner)
+        tvCalibBannerText = findViewById(R.id.tvCalibBannerText)
+        btnRoomsCalibrate = findViewById(R.id.btnRoomsCalibrate)
+        cardRoomsSurveyProgress = findViewById(R.id.cardRoomsSurveyProgress)
+        tvRoomsSurveyStatus = findViewById(R.id.tvRoomsSurveyStatus)
+        tvRoomsSurveyPercent = findViewById(R.id.tvRoomsSurveyPercent)
+        pbRoomsSurvey = findViewById(R.id.pbRoomsSurvey)
+        btnRoomsStopSurvey = findViewById(R.id.btnRoomsStopSurvey)
+        tvEmptyRooms = findViewById(R.id.tvEmptyRooms)
+        rvRooms = findViewById(R.id.rvRooms)
+        fabAddRoom = findViewById(R.id.fabAddRoom)
+
+        roomCardAdapter = RoomCardAdapter(
+            rooms = emptyList(),
+            isReadOnly = false,
+            onRescan = { spot -> showAddRoomDialog(prefillSpot = spot) },
+            onDelete = { spot -> confirmDeleteRoomSpot(spot) }
+        )
+        rvRooms.layoutManager = LinearLayoutManager(this)
+        rvRooms.adapter = roomCardAdapter
+
+        // Consumer Settings Views
+        rgUserEngine = findViewById(R.id.rgUserEngine)
+        rbUserEngineHybrid = findViewById(R.id.rbUserEngineHybrid)
+        rbUserEngineKnn = findViewById(R.id.rbUserEngineKnn)
+        rbUserEngineMamdani = findViewById(R.id.rbUserEngineMamdani)
+        btnUserThemeSwitch = findViewById(R.id.btnUserThemeSwitch)
+        btnUserCalibrate = findViewById(R.id.btnUserCalibrate)
+        btnUserClearMap = findViewById(R.id.btnUserClearMap)
+        switchSurveyTestSplit = findViewById(R.id.switchSurveyTestSplit)
+        switchLabMode = findViewById(R.id.switchLabMode)
 
         tabLayout = findViewById(R.id.tabLayout)
         layoutScannerView = findViewById(R.id.layoutScannerView)
@@ -1826,6 +2143,11 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+
+        bottomNav.setOnItemSelectedListener { item ->
+            showMainTab(item.itemId)
+            true
+        }
 
         btnRefreshSurveyAcc.setOnClickListener {
             refreshSurveyAccView()
@@ -1914,6 +2236,7 @@ class MainActivity : AppCompatActivity() {
         loadSettings() // Load user-configured parameters & strategy mode from SharedPreferences
         loadFingerprintsFromCsv() // Load saved spots from CSV and build strategy models
         updateProgressDisplay(0, surveySampleCount, "Survey Progress")
+        refreshRoomsView()
 
         experimentCsvManager = ExperimentCsvManager(this)
 
@@ -1991,10 +2314,11 @@ class MainActivity : AppCompatActivity() {
                 currentScanMode = ScanMode.EXPERIMENT
                 btnSurvey.isEnabled = false
                 btnLocate.isEnabled = false
+                btnHeroLocate.isEnabled = false
                 btnClearData.isEnabled = false
                 btnSettings.isEnabled = false
                 btnViewMatrix.isEnabled = false
-        btnViewMamdaniRules.isEnabled = false
+                btnViewMamdaniRules.isEnabled = false
                 acquireScreenWakeLock()
                 rebuildStrategyModels()
                 experimentRunner.startExperiment(config)
@@ -2023,7 +2347,152 @@ class MainActivity : AppCompatActivity() {
         val intentFilter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
         registerReceiver(wifiScanReceiver, intentFilter)
 
-        // 0. Settings Button: Configure survey/locate counts, k-NN k, and strategy selection
+        // Consumer Locate Tab Listeners
+        btnGoToRooms.setOnClickListener {
+            bottomNav.selectedItemId = R.id.nav_rooms
+        }
+        btnHeroLocate.setOnClickListener {
+            startLocateScan(isBackgroundContinuous = false)
+        }
+        switchContinuousLocate.setOnCheckedChangeListener { _, isChecked ->
+            isContinuousTracking = isChecked
+            if (isChecked) {
+                if (!isScanningActive && getActiveSurveyDatabase().isNotEmpty()) {
+                    startLocateScan(isBackgroundContinuous = true)
+                }
+            } else {
+                scanHandler.removeCallbacks(continuousLocateRunnable)
+            }
+        }
+        btnQuickFeedback.setOnClickListener {
+            val q = lastLocateQuery
+            val rK = lastResKnn
+            val rF = lastResFuzzy
+            val rP = lastResPattern
+            val rM = lastResMamdani
+            if (q != null && rK != null && rF != null && rP != null && rM != null) {
+                showFeedbackDialog(q, rK, rF, rP, rM, lastCalibOffsetDb)
+            }
+        }
+
+        // Consumer Rooms Tab Listeners
+        val mapSourceChangeHandler: (Int) -> Unit = { checkedId ->
+            if (!isUpdatingUiControls) {
+                if (isScanningActive) {
+                    Toast.makeText(this, "Cannot change map source while scanning!", Toast.LENGTH_SHORT).show()
+                    isUpdatingUiControls = true
+                    if (activeMapSource == FingerprintSource.LOCAL) {
+                        rbSourceLocal.isChecked = true
+                        rbRoomsSourceLocal.isChecked = true
+                    } else {
+                        rbSourceImported.isChecked = true
+                        rbRoomsSourceImported.isChecked = true
+                    }
+                    isUpdatingUiControls = false
+                } else if (checkedId == R.id.rbSourceImported || checkedId == R.id.rbRoomsSourceImported) {
+                    applySourceMode(FingerprintSource.IMPORTED)
+                } else {
+                    applySourceMode(FingerprintSource.LOCAL)
+                }
+            }
+        }
+        rgMapSource.setOnCheckedChangeListener { _, checkedId -> mapSourceChangeHandler(checkedId) }
+        rgRoomsMapSource.setOnCheckedChangeListener { _, checkedId -> mapSourceChangeHandler(checkedId) }
+
+        val shareMapAction = {
+            if (isScanningActive) {
+                Toast.makeText(this, "A scan is already in progress, please wait.", Toast.LENGTH_SHORT).show()
+            } else if (surveyDatabase.isEmpty()) {
+                Toast.makeText(this, "Local survey database is empty! Add rooms first.", Toast.LENGTH_SHORT).show()
+            } else {
+                try {
+                    val shareIntent = ShareManager.createShareIntent(this, surveyDatabase)
+                    startActivity(Intent.createChooser(shareIntent, "Share Wi-Fi Radio Map"))
+                    log("📤 Opening Android Share Sheet for ${surveyDatabase.size} local spots...\n")
+                } catch (e: Exception) {
+                    log("❌ Error sharing radio map: ${e.message}\n")
+                    Toast.makeText(this, "Share error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        val importMapAction = {
+            if (isScanningActive) {
+                Toast.makeText(this, "A scan is already in progress, please wait.", Toast.LENGTH_SHORT).show()
+            } else {
+                try {
+                    importFileLauncher.launch(arrayOf("text/*", "*/*"))
+                } catch (e: Exception) {
+                    log("❌ Error opening file picker: ${e.message}\n")
+                }
+            }
+        }
+        val calibrateAction = {
+            if (isScanningActive) {
+                Toast.makeText(this, "A scan is already in progress, please wait.", Toast.LENGTH_SHORT).show()
+            } else {
+                showCalibrationDialog()
+            }
+        }
+
+        btnShareMap.setOnClickListener { shareMapAction() }
+        btnRoomsShare.setOnClickListener { shareMapAction() }
+        btnImportMap.setOnClickListener { importMapAction() }
+        btnRoomsImport.setOnClickListener { importMapAction() }
+        btnCalibrate.setOnClickListener { calibrateAction() }
+        btnRoomsCalibrate.setOnClickListener { calibrateAction() }
+        fabAddRoom.setOnClickListener { showAddRoomDialog() }
+        btnRoomsStopSurvey.setOnClickListener { stopActiveSurvey() }
+
+        // Consumer Settings Tab Listeners
+        btnUserThemeSwitch.setOnClickListener { toggleThemeAction() }
+        btnUserCalibrate.setOnClickListener {
+            if (importedDatabase.isEmpty()) {
+                Toast.makeText(this, "Import a map in the Rooms tab first to calibrate against it.", Toast.LENGTH_SHORT).show()
+            } else {
+                calibrateAction()
+            }
+        }
+        btnUserClearMap.setOnClickListener { clearAllSurveyData() }
+
+        rgUserEngine.setOnCheckedChangeListener { _, checkedId ->
+            if (isUpdatingUiControls) return@setOnCheckedChangeListener
+            val chosen = when (checkedId) {
+                R.id.rbUserEngineKnn -> StrategyMode.KNN
+                R.id.rbUserEngineMamdani -> StrategyMode.MAMDANI
+                else -> StrategyMode.HYBRID
+            }
+            saveSettings(
+                surveySampleCount, locateSampleCount, knnK, chosen,
+                testSplitPercent, isAutoCalibrationEnabled, autoCalibTarget,
+                autoCalibStrategy, autoCalibMaxExtraScans
+            )
+        }
+
+        switchSurveyTestSplit.setOnCheckedChangeListener { _, isChecked ->
+            if (isUpdatingUiControls) return@setOnCheckedChangeListener
+            isSurveyTestSplitEnabled = isChecked
+            themePrefs.edit().putBoolean("survey_test_split_enabled", isChecked).apply()
+            updateSettingsSummary()
+            Toast.makeText(
+                this,
+                if (isChecked) "Survey 70/30 held-out test enabled" else "Survey held-out test disabled (100% build)",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        switchLabMode.setOnCheckedChangeListener { _, isChecked ->
+            if (isUpdatingUiControls) return@setOnCheckedChangeListener
+            labModeEnabled = isChecked
+            themePrefs.edit().putBoolean("lab_mode_enabled", isChecked).apply()
+            updateLabModeVisibility(isChecked)
+            Toast.makeText(
+                this,
+                if (isChecked) "Lab Mode enabled — Lab tab added below" else "Lab Mode disabled",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        // Lab Controls Listeners
         btnSettings.setOnClickListener {
             if (isScanningActive) {
                 log("\n⚠️ A scan is already in progress, please wait...\n")
@@ -2032,7 +2501,6 @@ class MainActivity : AppCompatActivity() {
             showSettingsDialog()
         }
 
-        // View Matrix Button: Inspect the loaded 3D Fuzzy Matrix
         btnViewMatrix.setOnClickListener {
             if (isScanningActive) {
                 log("\n⚠️ A scan is already in progress, please wait...\n")
@@ -2041,7 +2509,6 @@ class MainActivity : AppCompatActivity() {
             showFuzzyMatrixDialog()
         }
 
-        // View Mamdani Rules Button: Inspect the auto-generated Mamdani FIS rule base
         btnViewMamdaniRules.setOnClickListener {
             if (isScanningActive) {
                 log("\n⚠️ A scan is already in progress, please wait...\n")
@@ -2050,246 +2517,461 @@ class MainActivity : AppCompatActivity() {
             showMamdaniRulesDialog()
         }
 
-        // Map Source Toggle: Local vs Imported Reference
-        rgMapSource.setOnCheckedChangeListener { _, checkedId ->
-            if (isScanningActive) {
-                Toast.makeText(this, "Cannot change map source while scanning!", Toast.LENGTH_SHORT).show()
-                if (activeMapSource == FingerprintSource.LOCAL) rbSourceLocal.isChecked = true
-                else rbSourceImported.isChecked = true
-                return@setOnCheckedChangeListener
-            }
-            if (checkedId == R.id.rbSourceImported) {
-                applySourceMode(FingerprintSource.IMPORTED)
-            } else {
-                applySourceMode(FingerprintSource.LOCAL)
-            }
+        btnStopSurvey.setOnClickListener { stopActiveSurvey() }
+        btnSurvey.setOnClickListener { startSurveyForCurrentInputs() }
+        btnLocate.setOnClickListener { startLocateScan(isBackgroundContinuous = false) }
+        btnClearData.setOnClickListener { clearAllSurveyData() }
+    }
+
+    private fun showMainTab(itemId: Int) {
+        containerLocate.visibility = if (itemId == R.id.nav_locate) View.VISIBLE else View.GONE
+        containerRooms.visibility = if (itemId == R.id.nav_rooms) View.VISIBLE else View.GONE
+        containerSettings.visibility = if (itemId == R.id.nav_settings) View.VISIBLE else View.GONE
+        containerLab.visibility = if (itemId == R.id.nav_lab && labModeEnabled) View.VISIBLE else View.GONE
+
+        if (itemId != R.id.nav_locate) {
+            scanHandler.removeCallbacks(continuousLocateRunnable)
+        } else if (isContinuousTracking && !isScanningActive && getActiveSurveyDatabase().isNotEmpty()) {
+            scanHandler.postDelayed(continuousLocateRunnable, 500L)
         }
 
-        // Share Button: Android Share Sheet to send survey map to other phones
-        btnShareMap.setOnClickListener {
-            if (isScanningActive) {
-                log("\n⚠️ A scan is already in progress, please wait...\n")
-                return@setOnClickListener
-            }
-            if (surveyDatabase.isEmpty()) {
-                Toast.makeText(this, "Local survey database is empty! Record spots first.", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            try {
-                val shareIntent = ShareManager.createShareIntent(this, surveyDatabase)
-                startActivity(Intent.createChooser(shareIntent, "Share Wi-Fi Radio Map"))
-                log("📤 Opening Android Share Sheet for ${surveyDatabase.size} local spots...\n")
-            } catch (e: Exception) {
-                log("❌ Error sharing radio map: ${e.message}\n")
-                Toast.makeText(this, "Share error: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
+        if (itemId == R.id.nav_rooms) {
+            refreshRoomsView()
+        }
+    }
+
+    private fun updateLabModeVisibility(enabled: Boolean) {
+        if (!::bottomNav.isInitialized) return
+        bottomNav.menu.findItem(R.id.nav_lab)?.isVisible = enabled
+        if (!enabled && ::containerLab.isInitialized && containerLab.visibility == View.VISIBLE) {
+            bottomNav.selectedItemId = R.id.nav_locate
+        }
+        isUpdatingUiControls = true
+        if (::switchLabMode.isInitialized) {
+            switchLabMode.isChecked = enabled
+        }
+        isUpdatingUiControls = false
+    }
+
+    private fun syncUserSettingsUi() {
+        if (!::rgUserEngine.isInitialized) return
+        isUpdatingUiControls = true
+        when (selectedStrategyMode) {
+            StrategyMode.KNN -> rbUserEngineKnn.isChecked = true
+            StrategyMode.MAMDANI -> rbUserEngineMamdani.isChecked = true
+            else -> rbUserEngineHybrid.isChecked = true
+        }
+        if (::switchSurveyTestSplit.isInitialized) {
+            switchSurveyTestSplit.isChecked = isSurveyTestSplitEnabled
+        }
+        isUpdatingUiControls = false
+    }
+
+    private fun refreshLocateEmptyState() {
+        if (!::cardLocateEmpty.isInitialized) return
+        val hasRooms = getActiveSurveyDatabase().isNotEmpty()
+        cardLocateEmpty.visibility = if (hasRooms) View.GONE else View.VISIBLE
+        cardHeroLocation.visibility = if (hasRooms) View.VISIBLE else View.GONE
+        btnHeroLocate.isEnabled = hasRooms && !isScanningActive
+        if (!hasRooms) {
+            layoutTopCandidates.visibility = View.GONE
+            btnQuickFeedback.visibility = View.GONE
+        }
+    }
+
+    private fun refreshRoomsView() {
+        if (!::rvRooms.isInitialized) return
+        val rooms = getActiveSurveyDatabase().sortedBy { it.spotLabel.lowercase(Locale.US) }
+        val isReadOnly = activeMapSource == FingerprintSource.IMPORTED
+        roomCardAdapter?.updateRooms(rooms, isReadOnly)
+
+        tvEmptyRooms.visibility = if (rooms.isEmpty()) View.VISIBLE else View.GONE
+        rvRooms.visibility = if (rooms.isEmpty()) View.GONE else View.VISIBLE
+
+        if (isReadOnly || isScanningActive) {
+            fabAddRoom.hide()
+        } else {
+            fabAddRoom.show()
         }
 
-        // Import Button: Open document picker to load a reference map from another phone
-        btnImportMap.setOnClickListener {
-            if (isScanningActive) {
-                log("\n⚠️ A scan is already in progress, please wait...\n")
-                return@setOnClickListener
-            }
-            try {
-                importFileLauncher.launch(arrayOf("text/*", "*/*"))
-            } catch (e: Exception) {
-                log("❌ Error opening file picker: ${e.message}\n")
-            }
+        val refId = if (isReadOnly) importedMetadata?.deviceId ?: "" else ""
+        val calib = if (refId.isNotEmpty()) CalibrationStore.getCalibration(this, refId) else null
+        if (isReadOnly && calib == null && rooms.isNotEmpty()) {
+            cardCalibBanner.visibility = View.VISIBLE
+            tvCalibBannerText.text = "Imported from ${importedMetadata?.model ?: "another phone"} — calibrate once for best accuracy."
+        } else {
+            cardCalibBanner.visibility = View.GONE
         }
 
-        // Calibrate Button: One-spot antenna offset calibration against imported reference map
-        btnCalibrate.setOnClickListener {
-            if (isScanningActive) {
-                log("\n⚠️ A scan is already in progress, please wait...\n")
-                return@setOnClickListener
-            }
-            showCalibrationDialog()
+        if (::btnUserCalibrate.isInitialized) {
+            btnUserCalibrate.isEnabled = importedDatabase.isNotEmpty()
         }
 
-        // Stop Survey Button: Stops current survey session immediately and persists data collected so far
-        btnStopSurvey.setOnClickListener {
-            if (!isScanningActive || currentScanMode != ScanMode.SURVEY) return@setOnClickListener
+        updateSettingsSummary()
+        refreshLocateEmptyState()
+    }
 
-            val spot = editSpotName.text.toString().trim()
-            log("\n⏹️ User clicked STOP! Stopping survey for '$spot' at $currentSampleCount scans...\n")
-            userRequestedStop = true
-            scanHandler.removeCallbacksAndMessages(null)
-
-            if (sampleBuffer.isEmpty() || currentSampleCount == 0) {
-                log("⚠️ Survey stopped before any samples were captured.\n")
-                isScanningActive = false
-                btnSurvey.isEnabled = true
-                btnLocate.isEnabled = true
-                btnClearData.isEnabled = true
-                btnSettings.isEnabled = true
-                btnViewMatrix.isEnabled = true
-        btnViewMamdaniRules.isEnabled = true
-                btnStopSurvey.visibility = View.GONE
-                userRequestedStop = false
-                releaseScreenWakeLock()
-                return@setOnClickListener
-            }
-
-            activeTargetSamples = currentSampleCount
-            processAndSaveAveragedFingerprint()
+    private fun updateHeroLocationUi(
+        result: LocalizationResult,
+        coords: Pair<Double, Double>?,
+        apCount: Int,
+        isHybrid: Boolean
+    ) {
+        if (!::tvHeroRoomName.isInitialized) return
+        val winner = result.predictedSpot
+        if (winner == null) {
+            tvHeroStatusLabel.text = "UNABLE TO DETERMINE"
+            tvHeroRoomName.text = "No Match Found"
+            tvHeroConfidence.text = "Try scanning again or add rooms"
+            tvHeroSubtitle.text = "$apCount Wi-Fi APs detected"
+            layoutTopCandidates.visibility = View.GONE
+            return
         }
 
-        // 1. Survey Button: Record a labelled spot (or continue from existing survey if spot already exists)
-        btnSurvey.setOnClickListener {
-            if (isScanningActive) {
-                log("\n⚠️ A scan is already in progress, please wait...\n")
-                return@setOnClickListener
+        tvHeroStatusLabel.text = "CURRENT LOCATION"
+        tvHeroRoomName.text = winner
+
+        if (isHybrid) {
+            val pct = hybridStrategy.lastConfidencePercent
+            val (tier, bgColorRes, txtColorRes) = when {
+                pct >= 70 -> Triple("$pct% Confidence · High", R.color.status_success_bg, R.color.status_success)
+                pct >= 45 -> Triple("$pct% Confidence · Moderate", R.color.status_warning_bg, R.color.status_warning)
+                else -> Triple("$pct% Confidence · Low", R.color.status_error_bg, R.color.status_error)
             }
+            tvHeroConfidence.text = tier
+            tvHeroConfidence.backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this, bgColorRes))
+            tvHeroConfidence.setTextColor(ContextCompat.getColor(this, txtColorRes))
+        } else {
+            val marginInfo = result.confidenceMargin?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
+            tvHeroConfidence.text = "${selectedStrategyMode.title} · Margin $marginInfo"
+            tvHeroConfidence.backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this, R.color.badge_bg))
+            tvHeroConfidence.setTextColor(ContextCompat.getColor(this, R.color.badge_text))
+        }
 
-            val spotInput = editSpotName.text.toString().trim()
-            if (spotInput.isEmpty()) {
-                log("\n⚠️ Please enter a Spot Name (e.g. 'Spot 1') first!\n")
-                return@setOnClickListener
-            }
+        val coordPart = coords?.let {
+            if (it.first != 0.0 || it.second != 0.0) {
+                String.format(Locale.US, "(%.1fm, %.1fm) · ", it.first, it.second)
+            } else ""
+        } ?: ""
+        tvHeroSubtitle.text = "${coordPart}$apCount Wi-Fi APs · ${result.strategyName}"
 
-            val existingSpot = surveyDatabase.find { it.spotLabel.equals(spotInput, ignoreCase = true) }
-            val spot = existingSpot?.spotLabel ?: spotInput
-
-            userRequestedStop = false
-            isScanningActive = true
-            btnSurvey.isEnabled = false
-            btnLocate.isEnabled = false
-            btnClearData.isEnabled = false
-            btnSettings.isEnabled = false
-            btnViewMatrix.isEnabled = false
-        btnViewMamdaniRules.isEnabled = false
-            btnStopSurvey.visibility = View.VISIBLE
-            btnStopSurvey.isEnabled = true
-
-            currentScanMode = ScanMode.SURVEY
-            acquireScreenWakeLock()
-            sampleBuffer.clear()
-            bssidToSsidMap.clear()
-            scanSnapshots.clear()
-
-            if (existingSpot != null) {
-                // Populate previous samples to continue seamlessly from old surveying
-                for (m in existingSpot.measurements) {
-                    bssidToSsidMap[m.bssid] = m.ssid
-                    sampleBuffer[m.bssid] = m.rawReadings.toMutableList()
-                }
-
-                val priorScans = existingSpot.totalScans.coerceAtLeast(
-                    existingSpot.measurements.maxOfOrNull { it.rawReadings.size } ?: 0
-                )
-
-                // Reconstruct previous scan snapshots so train/test split covers the entire series
-                for (i in 0 until priorScans) {
-                    val snapshot = mutableMapOf<String, Int>()
-                    for (m in existingSpot.measurements) {
-                        if (i < m.rawReadings.size) {
-                            snapshot[m.bssid] = m.rawReadings[i]
-                        }
+        val top3 = result.rankings.take(3)
+        if (top3.size >= 2) {
+            layoutTopCandidates.visibility = View.VISIBLE
+            val slots = listOf(
+                Triple(cardCand1, tvCand1Name, tvCand1Score),
+                Triple(cardCand2, tvCand2Name, tvCand2Score),
+                Triple(cardCand3, tvCand3Name, tvCand3Score)
+            )
+            for (i in slots.indices) {
+                val (card, nameView, scoreView) = slots[i]
+                val item = top3.getOrNull(i)
+                if (item != null) {
+                    card.visibility = View.VISIBLE
+                    nameView.text = item.spotLabel
+                    scoreView.text = if (isHybrid) {
+                        "${item.scoreMetric.roundToInt()}%"
+                    } else {
+                        String.format(Locale.US, "%.2f", item.scoreMetric)
                     }
-                    scanSnapshots.add(snapshot)
-                }
-
-                currentSampleCount = priorScans
-                activeTargetSamples = if (priorScans < surveySampleCount) {
-                    surveySampleCount
                 } else {
-                    priorScans + surveySampleCount
+                    card.visibility = View.INVISIBLE
                 }
-
-                updateProgressDisplay(currentSampleCount, activeTargetSamples, "Continuing '$spot'...")
-
-                log("\n========================================\n")
-                log("🔄 Continuing survey for existing spot '$spot'\n")
-                log("• Prior Scans: $priorScans\n")
-                log("• Target Total: $activeTargetSamples scans (+${activeTargetSamples - priorScans} more)\n")
-                log("========================================\n")
-            } else {
-                currentSampleCount = 0
-                activeTargetSamples = surveySampleCount
-
-                updateProgressDisplay(0, activeTargetSamples, "Surveying '$spot'...")
-
-                log("\n========================================\n")
-                log("Survey started for new spot '$spot' ($activeTargetSamples iterations)...\n")
-                log("========================================\n")
             }
-
-            triggerWifiScan()
+        } else {
+            layoutTopCandidates.visibility = View.GONE
         }
 
-        // 2. Locate Button: Measure live signals and run localization strategy
-        btnLocate.setOnClickListener {
-            if (isScanningActive) {
-                log("\n⚠️ A scan is already in progress, please wait...\n")
-                return@setOnClickListener
-            }
+        btnQuickFeedback.visibility = View.VISIBLE
+    }
 
-            val activeSpots = getActiveSurveyDatabase()
-            if (activeSpots.isEmpty()) {
-                val msg = if (activeMapSource == FingerprintSource.IMPORTED) {
-                    "No imported reference spots found! Please import a reference map first."
-                } else {
-                    "No spots saved! Survey at least one spot first."
+    private fun showAddRoomDialog(prefillSpot: RawSurveySpot? = null) {
+        if (isScanningActive) {
+            Toast.makeText(this, "A scan is already in progress, please wait.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val dialogView = layoutInflater.inflate(R.layout.dialog_add_room, null, false)
+        val editName = dialogView.findViewById<EditText>(R.id.editAddRoomName)
+        val editX = dialogView.findViewById<EditText>(R.id.editAddRoomX)
+        val editY = dialogView.findViewById<EditText>(R.id.editAddRoomY)
+        val tvInfo = dialogView.findViewById<TextView>(R.id.tvAddRoomScanInfo)
+
+        val splitDesc = if (isSurveyTestSplitEnabled) {
+            val testCnt = maxOf(1, (surveySampleCount * testSplitPercent.coerceIn(10, 50)) / 100)
+            val buildCnt = maxOf(1, surveySampleCount - testCnt)
+            " ($buildCnt build / $testCnt held-out test using ${selectedStrategyMode.title})"
+        } else {
+            " (100% used to build map)"
+        }
+        if (prefillSpot != null) {
+            editName.setText(prefillSpot.spotLabel)
+            editName.isEnabled = false
+            if (prefillSpot.coordX != 0.0 || prefillSpot.coordY != 0.0) {
+                editX.setText(prefillSpot.coordX.toString())
+                editY.setText(prefillSpot.coordY.toString())
+            }
+            tvInfo.text = "Will collect $surveySampleCount additional Wi-Fi scans$splitDesc and merge them with '${prefillSpot.spotLabel}'."
+        } else {
+            tvInfo.text = "Hold your phone still in this room while $surveySampleCount Wi-Fi scans are captured$splitDesc."
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(if (prefillSpot != null) "Re-scan '${prefillSpot.spotLabel}'" else "Add New Room")
+            .setView(dialogView)
+            .setPositiveButton("Start Scan") { _, _ ->
+                val name = editName.text.toString().trim()
+                if (name.isEmpty()) {
+                    Toast.makeText(this, "Please enter a room name.", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
                 }
-                log("\n⚠️ $msg\n")
-                return@setOnClickListener
+                editSpotName.setText(name)
+                editSurveyCoordX.setText(editX.text.toString().trim())
+                editSurveyCoordY.setText(editY.text.toString().trim())
+                startSurveyForCurrentInputs()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmDeleteRoomSpot(spot: RawSurveySpot) {
+        if (isScanningActive) {
+            Toast.makeText(this, "Cannot delete while scanning!", Toast.LENGTH_SHORT).show()
+            return
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Delete '${spot.spotLabel}'?")
+            .setMessage("Remove all ${spot.totalScans} saved Wi-Fi scans for '${spot.spotLabel}'?")
+            .setPositiveButton("Delete") { _, _ ->
+                surveyDatabase.removeAll { it.spotLabel.equals(spot.spotLabel, ignoreCase = true) }
+                rewriteAllFingerprintsCsv()
+                rebuildStrategyModels()
+                refreshRoomsView()
+                if (::experimentController.isInitialized) {
+                    experimentController.refreshSpotList()
+                }
+                Toast.makeText(this, "Deleted '${spot.spotLabel}'", Toast.LENGTH_SHORT).show()
+                log("🗑️ Deleted room '${spot.spotLabel}'\n")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun rewriteAllFingerprintsCsv() {
+        try {
+            val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
+            val header = "timestamp,spot_label,coord_x,coord_y,bssid,ssid,sample_count,samples,avg_rssi"
+            val writer = FileWriter(file, false)
+            writer.append("$header\n")
+            val timestamp = System.currentTimeMillis()
+            for (spot in surveyDatabase) {
+                for (m in spot.measurements) {
+                    val cleanSsid = m.ssid.replace(",", " ")
+                    val rawStr = "\"[" + m.rawReadings.joinToString(";") + "]\""
+                    writer.append("$timestamp,${spot.spotLabel},${spot.coordX},${spot.coordY},${m.bssid},$cleanSsid,${m.rawReadings.size},$rawStr,${m.avgRssi}\n")
+                }
+            }
+            writer.flush()
+            writer.close()
+        } catch (e: Exception) {
+            log("❌ Error updating CSV: ${e.message}\n")
+        }
+    }
+
+    private fun stopActiveSurvey() {
+        if (!isScanningActive || currentScanMode != ScanMode.SURVEY) return
+
+        val spot = editSpotName.text.toString().trim()
+        log("\n⏹️ User clicked STOP! Stopping survey for '$spot' at $currentSampleCount scans...\n")
+        userRequestedStop = true
+        scanHandler.removeCallbacksAndMessages(null)
+
+        if (sampleBuffer.isEmpty() || currentSampleCount == 0) {
+            log("⚠️ Survey stopped before any samples were captured.\n")
+            unlockControlsAfterScan()
+            return
+        }
+
+        activeTargetSamples = currentSampleCount
+        processAndSaveAveragedFingerprint()
+    }
+
+    private fun startSurveyForCurrentInputs() {
+        if (isScanningActive) {
+            log("\n⚠️ A scan is already in progress, please wait...\n")
+            return
+        }
+
+        val spotInput = editSpotName.text.toString().trim()
+        if (spotInput.isEmpty()) {
+            log("\n⚠️ Please enter a Spot Name (e.g. 'Spot 1') first!\n")
+            Toast.makeText(this, "Please enter a room name first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val existingSpot = surveyDatabase.find { it.spotLabel.equals(spotInput, ignoreCase = true) }
+        val spot = existingSpot?.spotLabel ?: spotInput
+
+        userRequestedStop = false
+        isScanningActive = true
+        btnSurvey.isEnabled = false
+        btnLocate.isEnabled = false
+        btnHeroLocate.isEnabled = false
+        fabAddRoom.hide()
+        btnClearData.isEnabled = false
+        btnSettings.isEnabled = false
+        btnViewMatrix.isEnabled = false
+        btnViewMamdaniRules.isEnabled = false
+        btnStopSurvey.visibility = View.VISIBLE
+        btnStopSurvey.isEnabled = true
+
+        currentScanMode = ScanMode.SURVEY
+        acquireScreenWakeLock()
+        sampleBuffer.clear()
+        bssidToSsidMap.clear()
+        scanSnapshots.clear()
+
+        if (existingSpot != null) {
+            for (m in existingSpot.measurements) {
+                bssidToSsidMap[m.bssid] = m.ssid
+                sampleBuffer[m.bssid] = m.rawReadings.toMutableList()
             }
 
-            btnStopSurvey.visibility = View.GONE
+            val priorScans = existingSpot.totalScans.coerceAtLeast(
+                existingSpot.measurements.maxOfOrNull { it.rawReadings.size } ?: 0
+            )
 
-            activeTargetSamples = locateSampleCount
-            isScanningActive = true
-            btnSurvey.isEnabled = false
-            btnLocate.isEnabled = false
-            btnClearData.isEnabled = false
-            btnSettings.isEnabled = false
-            btnViewMatrix.isEnabled = false
-        btnViewMamdaniRules.isEnabled = false
+            for (i in 0 until priorScans) {
+                val snapshot = mutableMapOf<String, Int>()
+                for (m in existingSpot.measurements) {
+                    if (i < m.rawReadings.size) {
+                        snapshot[m.bssid] = m.rawReadings[i]
+                    }
+                }
+                scanSnapshots.add(snapshot)
+            }
 
-            currentScanMode = ScanMode.LOCATE
-            sampleBuffer.clear()
-            bssidToSsidMap.clear()
-            scanSnapshots.clear()
-            currentSampleCount = 0
+            currentSampleCount = priorScans
+            activeTargetSamples = if (priorScans < surveySampleCount) {
+                surveySampleCount
+            } else {
+                priorScans + surveySampleCount
+            }
 
-            updateProgressDisplay(0, activeTargetSamples, "Locating position...")
+            updateProgressDisplay(currentSampleCount, activeTargetSamples, "Continuing '$spot'...")
 
             log("\n========================================\n")
-            val modeTitle = selectedStrategyMode.title
-            log("📍 Locating position ($modeTitle, averaging $locateSampleCount scans)...\n")
+            log("🔄 Continuing survey for existing spot '$spot'\n")
+            log("• Prior Scans: $priorScans\n")
+            log("• Target Total: $activeTargetSamples scans (+${activeTargetSamples - priorScans} more)\n")
             log("========================================\n")
+        } else {
+            currentSampleCount = 0
+            activeTargetSamples = surveySampleCount
 
-            triggerWifiScan()
+            updateProgressDisplay(0, activeTargetSamples, "Surveying '$spot'...")
+
+            log("\n========================================\n")
+            log("Survey started for new spot '$spot' ($activeTargetSamples iterations)...\n")
+            log("========================================\n")
         }
 
-        // 3. Clear Data Button: Delete all saved fingerprints and the CSV file
-        btnClearData.setOnClickListener {
-            if (isScanningActive) {
-                log("\n⚠️ A scan is already in progress, please wait...\n")
-                return@setOnClickListener
-            }
+        triggerWifiScan()
+    }
 
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Delete All Survey Data?")
-                .setMessage("Are you sure you want to permanently delete all saved spots from memory and remove $CSV_FILE_NAME?")
-                .setPositiveButton("Yes, Delete") { _, _ ->
-                    surveyDatabase.clear()
-                    rebuildStrategyModels()
-                    val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
-                    if (file.exists()) {
-                        file.delete()
-                    }
-                    if (::experimentController.isInitialized) {
-                        experimentController.refreshSpotList()
-                    }
-                    log("\n========================================\n")
-                    log("🗑️ All survey data & CSV file have been deleted!\n")
-                    log("Total spots in memory: 0\n")
-                    log("========================================\n")
+    private fun startLocateScan(isBackgroundContinuous: Boolean) {
+        if (isScanningActive) {
+            if (!isBackgroundContinuous) {
+                log("\n⚠️ A scan is already in progress, please wait...\n")
+            }
+            return
+        }
+
+        val activeSpots = getActiveSurveyDatabase()
+        if (activeSpots.isEmpty()) {
+            val msg = if (activeMapSource == FingerprintSource.IMPORTED) {
+                "No imported reference spots found! Please import a reference map first."
+            } else {
+                "No spots saved! Add at least one room first."
+            }
+            log("\n⚠️ $msg\n")
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        btnStopSurvey.visibility = View.GONE
+
+        activeTargetSamples = locateSampleCount
+        isScanningActive = true
+        btnSurvey.isEnabled = false
+        btnLocate.isEnabled = false
+        btnHeroLocate.isEnabled = false
+        btnClearData.isEnabled = false
+        btnSettings.isEnabled = false
+        btnViewMatrix.isEnabled = false
+        btnViewMamdaniRules.isEnabled = false
+
+        // Consumer Hero scanning visual feedback
+        pbHeroScanning.visibility = View.VISIBLE
+        pbHeroScanning.isIndeterminate = true
+        tvHeroRadarIcon.text = "📡"
+        tvHeroStatusLabel.text = "SCANNING WI-FI..."
+        btnHeroLocate.text = "Scanning ($locateSampleCount scans)..."
+
+        currentScanMode = ScanMode.LOCATE
+        sampleBuffer.clear()
+        bssidToSsidMap.clear()
+        scanSnapshots.clear()
+        currentSampleCount = 0
+
+        updateProgressDisplay(0, activeTargetSamples, "Locating position...")
+
+        log("\n========================================\n")
+        val modeTitle = selectedStrategyMode.title
+        log("📍 Locating position ($modeTitle, averaging $locateSampleCount scans)...\n")
+        log("========================================\n")
+
+        triggerWifiScan()
+    }
+
+    private fun clearAllSurveyData() {
+        if (isScanningActive) {
+            log("\n⚠️ A scan is already in progress, please wait...\n")
+            return
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Delete All Survey Data?")
+            .setMessage("Are you sure you want to permanently delete all saved rooms from memory and remove $CSV_FILE_NAME?")
+            .setPositiveButton("Yes, Delete") { _, _ ->
+                surveyDatabase.clear()
+                rebuildStrategyModels()
+                val file = File(getExternalFilesDir(null), CSV_FILE_NAME)
+                if (file.exists()) {
+                    file.delete()
                 }
-                .setNegativeButton("Cancel", null)
-                .show()
+                if (::experimentController.isInitialized) {
+                    experimentController.refreshSpotList()
+                }
+                refreshRoomsView()
+                log("\n========================================\n")
+                log("🗑️ All survey data & CSV file have been deleted!\n")
+                log("Total spots in memory: 0\n")
+                log("========================================\n")
+                Toast.makeText(this, "All saved rooms cleared", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        scanHandler.removeCallbacks(continuousLocateRunnable)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isContinuousTracking && !isScanningActive && ::containerLocate.isInitialized && containerLocate.visibility == View.VISIBLE) {
+            scanHandler.postDelayed(continuousLocateRunnable, 1000L)
         }
     }
 

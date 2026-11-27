@@ -27,6 +27,8 @@
 
     <color name="status_success">#4ADE80</color>
     <color name="status_success_bg">#122A1E</color>
+    <color name="status_warning">#FBBF24</color>
+    <color name="status_warning_bg">#2E2311</color>
     <color name="status_error">#F87171</color>
     <color name="status_error_bg">#2E1519</color>
     <color name="badge_bg">#233252</color>
