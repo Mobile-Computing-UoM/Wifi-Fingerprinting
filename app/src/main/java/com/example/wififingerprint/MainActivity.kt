@@ -155,6 +155,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnUserThemeSwitch: Button
     private lateinit var btnUserCalibrate: Button
     private lateinit var btnUserClearMap: Button
+    private lateinit var rgSurveySamplingMode: RadioGroup
+    private lateinit var rbSurveyFixed: RadioButton
+    private lateinit var rbSurveyAutoCalib: RadioButton
+    private lateinit var layoutFixedSamplingOptions: LinearLayout
+    private lateinit var editUserFixedSampleCount: EditText
+    private lateinit var btnApplyFixedCount: Button
+    private lateinit var tvAutoCalibModeNote: TextView
     private lateinit var switchSurveyTestSplit: MaterialSwitch
     private lateinit var switchLabMode: MaterialSwitch
 
@@ -444,8 +451,9 @@ class MainActivity : AppCompatActivity() {
         } else {
             "Map: 📱 Local (${surveyDatabase.size} spots)"
         }
-        val splitTag = if (isSurveyTestSplitEnabled) "${100 - testSplitPercent}/$testSplitPercent" else "100/0"
-        tvSettingsSummary.text = "$sourceDesc | Survey=$surveySampleCount ($splitTag) | Locate=$locateSampleCount | Mode: $stratShort"
+        val modeTag = if (isAutoCalibrationEnabled) "Auto-Calib" else "Fixed"
+        val splitTag = if (isAutoCalibrationEnabled || isSurveyTestSplitEnabled) "${100 - testSplitPercent}/$testSplitPercent" else "100/0"
+        tvSettingsSummary.text = "$sourceDesc | Survey=$surveySampleCount ($modeTag, $splitTag) | Locate=$locateSampleCount | Mode: $stratShort"
 
         // Update minimal consumer top bar
         if (::tvHeaderSubtitle.isInitialized) {
@@ -724,7 +732,8 @@ class MainActivity : AppCompatActivity() {
             ScanMode.SURVEY -> {
                 val spot = editSpotName.text.toString().trim()
                 val totalScans = scanSnapshots.size
-                val effectiveSplit = if (isSurveyTestSplitEnabled) testSplitPercent.coerceIn(10, 50) else 0
+                val shouldRunHeldOutTest = isAutoCalibrationEnabled || isSurveyTestSplitEnabled
+                val effectiveSplit = if (shouldRunHeldOutTest) testSplitPercent.coerceIn(10, 50) else 0
                 val testScansCount = if (effectiveSplit > 0 && totalScans >= 2) maxOf(1, (totalScans * effectiveSplit) / 100) else 0
                 val trainScansCount = maxOf(1, totalScans - testScansCount)
 
@@ -2064,6 +2073,13 @@ class MainActivity : AppCompatActivity() {
         btnUserThemeSwitch = findViewById(R.id.btnUserThemeSwitch)
         btnUserCalibrate = findViewById(R.id.btnUserCalibrate)
         btnUserClearMap = findViewById(R.id.btnUserClearMap)
+        rgSurveySamplingMode = findViewById(R.id.rgSurveySamplingMode)
+        rbSurveyFixed = findViewById(R.id.rbSurveyFixed)
+        rbSurveyAutoCalib = findViewById(R.id.rbSurveyAutoCalib)
+        layoutFixedSamplingOptions = findViewById(R.id.layoutFixedSamplingOptions)
+        editUserFixedSampleCount = findViewById(R.id.editUserFixedSampleCount)
+        btnApplyFixedCount = findViewById(R.id.btnApplyFixedCount)
+        tvAutoCalibModeNote = findViewById(R.id.tvAutoCalibModeNote)
         switchSurveyTestSplit = findViewById(R.id.switchSurveyTestSplit)
         switchLabMode = findViewById(R.id.switchLabMode)
 
@@ -2468,6 +2484,37 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        rgSurveySamplingMode.setOnCheckedChangeListener { _, checkedId ->
+            if (isUpdatingUiControls) return@setOnCheckedChangeListener
+            val enableAuto = (checkedId == R.id.rbSurveyAutoCalib)
+            isAutoCalibrationEnabled = enableAuto
+            themePrefs.edit().putBoolean("auto_calib_enabled", enableAuto).apply()
+            layoutFixedSamplingOptions.visibility = if (enableAuto) View.GONE else View.VISIBLE
+            tvAutoCalibModeNote.visibility = if (enableAuto) View.VISIBLE else View.GONE
+            updateSettingsSummary()
+            Toast.makeText(
+                this,
+                if (enableAuto) "Auto-Calibration enabled (70/30 test)" else "Fixed Sample Count ($surveySampleCount scans/room)",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        btnApplyFixedCount.setOnClickListener {
+            val entered = editUserFixedSampleCount.text.toString().trim().toIntOrNull()
+            if (entered == null || entered !in 2..200) {
+                Toast.makeText(this, "Enter a scan count between 2 and 200.", Toast.LENGTH_SHORT).show()
+                editUserFixedSampleCount.setText(surveySampleCount.toString())
+                return@setOnClickListener
+            }
+            surveySampleCount = entered
+            themePrefs.edit().putInt("survey_count", entered).apply()
+            if (!isScanningActive) {
+                updateProgressDisplay(0, surveySampleCount, "Survey Progress")
+            }
+            updateSettingsSummary()
+            Toast.makeText(this, "Fixed sample count set to $entered scans/room", Toast.LENGTH_SHORT).show()
+        }
+
         switchSurveyTestSplit.setOnCheckedChangeListener { _, isChecked ->
             if (isUpdatingUiControls) return@setOnCheckedChangeListener
             isSurveyTestSplitEnabled = isChecked
@@ -2560,6 +2607,18 @@ class MainActivity : AppCompatActivity() {
             StrategyMode.KNN -> rbUserEngineKnn.isChecked = true
             StrategyMode.MAMDANI -> rbUserEngineMamdani.isChecked = true
             else -> rbUserEngineHybrid.isChecked = true
+        }
+        if (::rgSurveySamplingMode.isInitialized) {
+            if (isAutoCalibrationEnabled) {
+                rbSurveyAutoCalib.isChecked = true
+            } else {
+                rbSurveyFixed.isChecked = true
+            }
+            layoutFixedSamplingOptions.visibility = if (isAutoCalibrationEnabled) View.GONE else View.VISIBLE
+            tvAutoCalibModeNote.visibility = if (isAutoCalibrationEnabled) View.VISIBLE else View.GONE
+            if (editUserFixedSampleCount.text.toString() != surveySampleCount.toString()) {
+                editUserFixedSampleCount.setText(surveySampleCount.toString())
+            }
         }
         if (::switchSurveyTestSplit.isInitialized) {
             switchSurveyTestSplit.isChecked = isSurveyTestSplitEnabled
@@ -2696,12 +2755,16 @@ class MainActivity : AppCompatActivity() {
         val editY = dialogView.findViewById<EditText>(R.id.editAddRoomY)
         val tvInfo = dialogView.findViewById<TextView>(R.id.tvAddRoomScanInfo)
 
-        val splitDesc = if (isSurveyTestSplitEnabled) {
+        val modeDesc = if (isAutoCalibrationEnabled) {
             val testCnt = maxOf(1, (surveySampleCount * testSplitPercent.coerceIn(10, 50)) / 100)
             val buildCnt = maxOf(1, surveySampleCount - testCnt)
-            " ($buildCnt build / $testCnt held-out test using ${selectedStrategyMode.title})"
+            " [Auto-Calib · $buildCnt build / $testCnt test, extends if < $autoCalibTarget%]"
+        } else if (isSurveyTestSplitEnabled) {
+            val testCnt = maxOf(1, (surveySampleCount * testSplitPercent.coerceIn(10, 50)) / 100)
+            val buildCnt = maxOf(1, surveySampleCount - testCnt)
+            " [Fixed · $buildCnt build / $testCnt held-out test using ${selectedStrategyMode.title}]"
         } else {
-            " (100% used to build map)"
+            " [Fixed · 100% used to build map]"
         }
         if (prefillSpot != null) {
             editName.setText(prefillSpot.spotLabel)
@@ -2710,9 +2773,9 @@ class MainActivity : AppCompatActivity() {
                 editX.setText(prefillSpot.coordX.toString())
                 editY.setText(prefillSpot.coordY.toString())
             }
-            tvInfo.text = "Will collect $surveySampleCount additional Wi-Fi scans$splitDesc and merge them with '${prefillSpot.spotLabel}'."
+            tvInfo.text = "Will collect $surveySampleCount additional Wi-Fi scans$modeDesc and merge them with '${prefillSpot.spotLabel}'."
         } else {
-            tvInfo.text = "Hold your phone still in this room while $surveySampleCount Wi-Fi scans are captured$splitDesc."
+            tvInfo.text = "Hold your phone still in this room while $surveySampleCount Wi-Fi scans are captured$modeDesc."
         }
 
         androidx.appcompat.app.AlertDialog.Builder(this)

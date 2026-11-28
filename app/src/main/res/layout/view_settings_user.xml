@@ -83,7 +83,18 @@
             </RadioGroup>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Survey Held-Out Validation Toggle -->
+        <!-- Section 2: Survey Sampling Mode -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SURVEY SAMPLING MODE"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.06"
+            android:textColor="@color/text_muted"
+            android:layout_marginStart="4dp"
+            android:layout_marginBottom="6dp" />
+
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -98,25 +109,132 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="14dp">
+                android:padding="12dp">
 
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/switchSurveyTestSplit"
+                <RadioGroup
+                    android:id="@+id/rgSurveySamplingMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <RadioButton
+                        android:id="@+id/rbSurveyFixed"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Fixed Sample Count\nEqual scans per room for fair comparison"
+                        android:textSize="13.5sp"
+                        android:textColor="@color/text_primary"
+                        android:paddingVertical="5dp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/divider_subtle"
+                        android:layout_marginVertical="4dp" />
+
+                    <RadioButton
+                        android:id="@+id/rbSurveyAutoCalib"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Auto-Calibration\nExtends scans (+5) until accuracy target is met"
+                        android:textSize="13.5sp"
+                        android:textColor="@color/text_primary"
+                        android:paddingVertical="5dp" />
+                </RadioGroup>
+
+                <!-- Options shown when Fixed Sample Count is selected -->
+                <LinearLayout
+                    android:id="@+id/layoutFixedSamplingOptions"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="Survey Held-Out Test (70/30)"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/text_primary" />
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_card_tonal"
+                    android:padding="12dp"
+                    android:layout_marginTop="10dp">
 
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="10dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Scans per room"
+                            android:textSize="13.5sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/text_primary" />
+
+                        <EditText
+                            android:id="@+id/editUserFixedSampleCount"
+                            android:layout_width="72dp"
+                            android:layout_height="40dp"
+                            android:inputType="number"
+                            android:gravity="center"
+                            android:hint="10"
+                            android:text="10"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_muted"
+                            android:background="@drawable/bg_input_rounded"
+                            android:layout_marginEnd="8dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnApplyFixedCount"
+                            android:layout_width="wrap_content"
+                            android:layout_height="40dp"
+                            android:text="Apply"
+                            android:textSize="12.5sp"
+                            android:textStyle="bold"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:paddingHorizontal="14dp"
+                            app:cornerRadius="10dp"
+                            app:backgroundTint="@color/btn_primary_bg"
+                            android:textColor="@color/btn_primary_text" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/divider_subtle"
+                        android:layout_marginBottom="8dp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchSurveyTestSplit"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Test while surveying (70/30)"
+                        android:textSize="13.5sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Optional: uses 70% to build and 30% to test the selected engine (WKNN / Mamdani FIS / Hybrid). Turn off to use 100% of scans for building."
+                        android:textSize="11.5sp"
+                        android:textColor="@color/text_secondary"
+                        android:layout_marginTop="2dp" />
+                </LinearLayout>
+
+                <!-- Note shown when Auto-Calibration is selected -->
                 <TextView
+                    android:id="@+id/tvAutoCalibModeNote"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Uses 70% of scans to build and 30% to test the selected engine (WKNN, Mamdani FIS, or Hybrid). Default: 10 scans (7 build / 3 test)."
+                    android:text="Uses 70/30 held-out testing automatically and extends scans (+5 at a time) until accuracy target is met."
                     android:textSize="12sp"
-                    android:textColor="@color/text_secondary"
-                    android:layout_marginTop="4dp" />
+                    android:textColor="@color/text_accent"
+                    android:background="@drawable/bg_card_tonal"
+                    android:padding="10dp"
+                    android:layout_marginTop="10dp"
+                    android:visibility="gone" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

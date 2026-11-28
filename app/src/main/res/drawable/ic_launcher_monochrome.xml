@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Monochrome Location Pin with circular cutout for Android 13+ themed icons -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M54,78 C54,78 34,61 34,48 A20,20 0 1,1 74,48 C74,61 54,78 54,78 Z M54,34.5 A13.5,13.5 0 1,0 54,61.5 A13.5,13.5 0 1,0 54,34.5 Z" />
+
+    <path
+        android:pathData="M46.2,47.7 A11.0,11.0 0 0,1 61.8,47.7"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M49.4,50.9 A6.5,6.5 0 0,1 58.6,50.9"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M54,52.8 A2.7,2.7 0 1,0 54,58.2 A2.7,2.7 0 1,0 54,52.8 Z"
+        android:fillColor="#FFFFFFFF" />
+</vector>
